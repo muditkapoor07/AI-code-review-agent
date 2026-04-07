@@ -1,0 +1,1434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Code Review Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #080c12;
+      --bg1:       #0d1117;
+      --bg2:       #161b22;
+      --bg3:       #1c2128;
+      --bg4:       #21262d;
+      --border:    #2a3140;
+      --border2:   #3d444d;
+      --text:      #f0f6fc;
+      --text2:     #a0aec0;
+      --text3:     #6e7681;
+      --accent:    #4f9eff;
+      --accent2:   #1a5fcc;
+      --accentGlow:#4f9eff44;
+      --green:     #3fb950;
+      --green2:    #238636;
+      --green-bg:  #0d1f12;
+      --yellow:    #e3b341;
+      --yellow-bg: #2d2007;
+      --red:       #f85149;
+      --red-bg:    #200b0b;
+      --purple:    #a78bfa;
+      --cyan:      #22d3ee;
+      --radius:    10px;
+      --radius-lg: 16px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── App shell ─────────────────────────────────────────── */
+    .app {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Hero Header ───────────────────────────────────────── */
+    .header {
+      background: linear-gradient(135deg, #0d1117 0%, #0f1923 50%, #0d1117 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .header::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: radial-gradient(ellipse 60% 100% at 20% 50%, rgba(79,158,255,.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .header-inner {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      height: 80px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .header-icon {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, #1a3a6e, #0d2040);
+      border: 1px solid rgba(79,158,255,.3);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      box-shadow: 0 0 20px rgba(79,158,255,.15);
+    }
+
+    .header-icon svg { color: var(--accent); }
+
+    .header-title-group { display: flex; flex-direction: column; gap: 2px; }
+
+    .header-title {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -.04em;
+      background: linear-gradient(90deg, #ffffff 0%, #a0c4ff 60%, #4f9eff 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.2;
+    }
+
+    .header-subtitle {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text3);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .header-badges {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-left: 4px;
+    }
+
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 20px;
+      letter-spacing: .04em;
+    }
+
+    .badge-autonomous {
+      background: rgba(79,158,255,.15);
+      color: var(--accent);
+      border: 1px solid rgba(79,158,255,.3);
+    }
+
+    .badge-groq {
+      background: rgba(63,185,80,.1);
+      color: var(--green);
+      border: 1px solid rgba(63,185,80,.25);
+    }
+
+    .header-spacer { flex: 1; }
+
+    .header-model {
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text3);
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      padding: 5px 12px;
+      border-radius: 20px;
+    }
+
+    /* ── Workspace ─────────────────────────────────────────── */
+    .workspace {
+      display: grid;
+      grid-template-columns: 420px 1fr;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ───────────────────────────────────────────── */
+    .sidebar {
+      background: var(--bg1);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* ── Section ───────────────────────────────────────────── */
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text3);
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      margin-bottom: 10px;
+    }
+
+    /* ── Mode tabs ─────────────────────────────────────────── */
+    .mode-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 4px;
+      gap: 4px;
+    }
+
+    .mode-tab {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 11px 16px;
+      border-radius: 7px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .18s ease;
+      color: var(--text3);
+      border: none;
+      background: transparent;
+      outline: none;
+    }
+
+    .mode-tab:hover { color: var(--text2); background: var(--bg3); }
+
+    .mode-tab.active {
+      background: linear-gradient(135deg, #1a2a3f, #142235);
+      color: var(--accent);
+      border: 1px solid rgba(79,158,255,.25);
+      box-shadow: 0 2px 8px rgba(0,0,0,.4), inset 0 1px 0 rgba(79,158,255,.1);
+    }
+
+    .mode-tab svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+    /* ── Inputs ────────────────────────────────────────────── */
+    .input-group { display: flex; flex-direction: column; gap: 8px; }
+
+    label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text2);
+    }
+
+    input[type="text"], select, textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      padding: 11px 14px;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+
+    input[type="text"]:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(79,158,255,.12);
+    }
+
+    input::placeholder, textarea::placeholder { color: var(--text3); }
+
+    textarea {
+      resize: vertical;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.65;
+      min-height: 240px;
+    }
+
+    select {
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236e7681' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 34px;
+    }
+
+    select option { background: #1c2128; }
+
+    .hint {
+      font-size: 12px;
+      color: var(--text3);
+      line-height: 1.5;
+    }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* ── Advanced ──────────────────────────────────────────── */
+    .adv-toggle {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text3);
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 4px 0;
+      outline: none;
+      transition: color .15s;
+    }
+    .adv-toggle:hover { color: var(--text2); }
+    .adv-toggle svg { transition: transform .2s; }
+    .adv-toggle.open svg { transform: rotate(90deg); }
+    .adv-panel { display: none; flex-direction: column; gap: 14px; padding-top: 4px; }
+    .adv-panel.open { display: flex; }
+
+    /* ── Start button ──────────────────────────────────────── */
+    .btn-start {
+      width: 100%;
+      padding: 15px;
+      background: linear-gradient(135deg, #1f6e31, #196128);
+      border: 1px solid rgba(63,185,80,.35);
+      border-radius: var(--radius);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: .01em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: all .18s ease;
+      box-shadow: 0 4px 20px rgba(35,134,54,.3), inset 0 1px 0 rgba(255,255,255,.08);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-start::before {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%; width: 100%; height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.06), transparent);
+      transition: left .4s ease;
+    }
+
+    .btn-start:hover:not(:disabled)::before { left: 100%; }
+
+    .btn-start:hover:not(:disabled) {
+      background: linear-gradient(135deg, #238636, #1a6b2e);
+      box-shadow: 0 6px 28px rgba(35,134,54,.45), inset 0 1px 0 rgba(255,255,255,.1);
+      transform: translateY(-1px);
+    }
+
+    .btn-start:active:not(:disabled) { transform: translateY(0); }
+
+    .btn-start:disabled {
+      background: var(--bg3);
+      color: var(--text3);
+      border-color: var(--border);
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .btn-stop {
+      width: 100%;
+      padding: 15px;
+      background: var(--red-bg);
+      border: 1px solid rgba(248,81,73,.35);
+      border-radius: var(--radius);
+      color: var(--red);
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: all .15s;
+    }
+    .btn-stop:hover { background: #2d1010; }
+
+    /* ── Status bar ────────────────────────────────────────── */
+    .status-bar {
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--text3);
+      background: var(--bg);
+    }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background .3s;
+    }
+    .status-dot.idle    { background: var(--border2); }
+    .status-dot.running { background: var(--green); animation: pulse 1.4s infinite; }
+    .status-dot.done    { background: var(--green); }
+    .status-dot.error   { background: var(--red); }
+
+    @keyframes pulse {
+      0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(63,185,80,.4); }
+      50%      { opacity: .7; box-shadow: 0 0 0 5px rgba(63,185,80,0); }
+    }
+
+    /* ── Main area ─────────────────────────────────────────── */
+    .main {
+      display: grid;
+      grid-template-rows: 1fr 0px;
+      overflow: hidden;
+      transition: grid-template-rows .5s cubic-bezier(.4,0,.2,1);
+    }
+    .main.has-report { grid-template-rows: 1fr 3fr; }
+
+    /* ── Panel shared ──────────────────────────────────────── */
+    .panel { display: flex; flex-direction: column; overflow: hidden; }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg1);
+      flex-shrink: 0;
+    }
+
+    .panel-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text3);
+      text-transform: uppercase;
+      letter-spacing: .1em;
+    }
+
+    .panel-pill {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 9px;
+      border-radius: 20px;
+      background: var(--bg3);
+      color: var(--text3);
+      border: 1px solid var(--border);
+    }
+    .panel-pill.running { background: rgba(63,185,80,.1); color: var(--green); border-color: rgba(63,185,80,.25); }
+
+    /* ── Feed ──────────────────────────────────────────────── */
+    .feed {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    .empty-feed {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      color: var(--text3);
+      padding: 40px;
+    }
+
+    .empty-feed svg { opacity: .2; }
+    .empty-feed h3 { font-size: 15px; font-weight: 600; color: var(--text3); }
+    .empty-feed p  { font-size: 13px; text-align: center; line-height: 1.6; }
+
+    /* ── Feed entry ────────────────────────────────────────── */
+    .fe {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 8px 24px;
+      transition: background .1s;
+    }
+    .fe:hover { background: rgba(255,255,255,.02); }
+
+    .fe-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 6px;
+    }
+
+    .fe-body  { flex: 1; min-width: 0; }
+    .fe-name  { font-size: 13px; font-weight: 500; }
+    .fe-sub   { font-size: 12px; color: var(--text3); margin-top: 2px; font-family: 'JetBrains Mono', monospace; word-break: break-word; }
+    .fe-dur   { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--text3); flex-shrink: 0; padding-left: 8px; margin-top: 4px; }
+
+    .fe-pass    .fe-dot { background: var(--accent); }
+    .fe-pass    .fe-name { color: var(--accent); }
+    .fe-tool    .fe-dot { background: var(--yellow); }
+    .fe-tool    .fe-name { color: var(--text); }
+    .fe-ok      .fe-dot { background: var(--green); }
+    .fe-ok      .fe-name { color: var(--text2); }
+    .fe-err-fe  .fe-dot { background: var(--red); }
+    .fe-err-fe  .fe-name { color: var(--red); }
+    .fe-status  .fe-dot { background: var(--purple); }
+    .fe-status  .fe-name { color: var(--purple); font-style: italic; font-size: 12.5px; }
+    .fe-think   .fe-dot { background: var(--cyan); }
+    .fe-think   .fe-name { color: var(--cyan); font-style: italic; font-size: 12.5px; }
+
+    .spinner {
+      width: 12px; height: 12px;
+      border: 2px solid var(--border2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      flex-shrink: 0;
+      margin-top: 6px;
+    }
+
+    .fe-icon { width: 7px; height: 7px; flex-shrink: 0; margin-top: 6px; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Report panel ──────────────────────────────────────── */
+    .report-panel { display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--border); }
+
+    .report-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Verdict */
+    .verdict-card {
+      border-radius: var(--radius-lg);
+      padding: 20px 24px;
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+      border: 1px solid;
+    }
+    .verdict-approve { background: linear-gradient(135deg, #0d1f12, #0a1a0e); border-color: rgba(63,185,80,.3); }
+    .verdict-changes { background: linear-gradient(135deg, #1f1800, #190f00); border-color: rgba(227,179,65,.3); }
+    .verdict-reject  { background: linear-gradient(135deg, #1a0808, #120404); border-color: rgba(248,81,73,.3); }
+
+    .verdict-label {
+      font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .1em;
+      padding: 5px 14px; border-radius: 20px; white-space: nowrap;
+    }
+    .verdict-approve .verdict-label { background: var(--green2); color: #fff; }
+    .verdict-changes .verdict-label { background: #6e4c00; color: var(--yellow); }
+    .verdict-reject  .verdict-label { background: #7a1515; color: var(--red); }
+
+    .verdict-text { font-size: 14px; color: var(--text2); line-height: 1.7; }
+    .verdict-blockers { margin-top: 8px; font-size: 12.5px; color: var(--red); }
+
+    /* Scores */
+    .scores-row {
+      display: grid;
+      grid-template-columns: repeat(4,1fr);
+      gap: 12px;
+    }
+    @media(max-width:1100px) { .scores-row { grid-template-columns: repeat(2,1fr); } }
+
+    .score-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+    }
+    .score-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text3); margin-bottom: 10px; }
+    .score-num { font-size: 32px; font-weight: 800; font-family: 'JetBrains Mono',monospace; line-height: 1; margin-bottom: 10px; }
+    .score-num span { font-size: 14px; color: var(--text3); font-weight: 400; }
+    .score-track { height: 4px; background: var(--bg4); border-radius: 2px; overflow: hidden; }
+    .score-fill  { height: 100%; border-radius: 2px; transition: width .7s ease; }
+
+    /* Findings */
+    .findings-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .findings-title { font-size: 14px; font-weight: 700; color: var(--text); }
+    .findings-ct { font-size: 13px; color: var(--text3); }
+
+    .finding-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 8px;
+      transition: border-color .15s;
+    }
+    .finding-card:hover { border-color: var(--border2); }
+    .finding-card:last-child { margin-bottom: 0; }
+
+    .finding-hdr {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 16px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .finding-hdr:hover { background: rgba(255,255,255,.02); }
+
+    .sev-pill {
+      font-size: 10px; font-weight: 700;
+      padding: 3px 9px; border-radius: 20px;
+      letter-spacing: .06em; flex-shrink: 0;
+    }
+    .sev-critical { background: rgba(248,81,73,.15); color: #f85149; border: 1px solid rgba(248,81,73,.3); }
+    .sev-high     { background: rgba(230,111,71,.15); color: #e66f47; border: 1px solid rgba(230,111,71,.3); }
+    .sev-medium   { background: rgba(227,179,65,.15); color: #e3b341; border: 1px solid rgba(227,179,65,.3); }
+    .sev-low      { background: rgba(34,211,238,.1);  color: #22d3ee; border: 1px solid rgba(34,211,238,.2); }
+    .sev-info     { background: var(--bg4); color: var(--text3); border: 1px solid var(--border); }
+
+    .cat-pill {
+      font-size: 10px; font-weight: 600;
+      padding: 3px 9px; border-radius: 20px; flex-shrink: 0;
+    }
+    .cat-security     { background: rgba(167,139,250,.1); color: var(--purple); border: 1px solid rgba(167,139,250,.25); }
+    .cat-bug          { background: rgba(248,81,73,.08); color: #f87171; border: 1px solid rgba(248,81,73,.2); }
+    .cat-performance  { background: rgba(79,158,255,.1); color: var(--accent); border: 1px solid rgba(79,158,255,.2); }
+    .cat-code_quality { background: rgba(63,185,80,.1); color: var(--green); border: 1px solid rgba(63,185,80,.2); }
+
+    .finding-title-text { font-size: 13.5px; font-weight: 500; color: var(--text); flex: 1; min-width: 0; }
+    .finding-file-lbl   { font-size: 11.5px; font-family: 'JetBrains Mono',monospace; color: var(--text3); flex-shrink: 0; }
+    .finding-chev       { color: var(--text3); transition: transform .2s; flex-shrink: 0; }
+    .finding-card.expanded .finding-chev { transform: rotate(90deg); }
+
+    .finding-body { display: none; border-top: 1px solid var(--border); padding: 16px; }
+    .finding-card.expanded .finding-body { display: block; }
+
+    .f-section { margin-top: 14px; }
+    .f-section:first-child { margin-top: 0; }
+    .f-section-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--text3); margin-bottom: 7px; }
+    .f-desc { font-size: 13.5px; color: var(--text2); line-height: 1.7; }
+
+    .exploit-box {
+      background: rgba(248,81,73,.06); border: 1px solid rgba(248,81,73,.18);
+      border-radius: 8px; padding: 12px 14px;
+      font-size: 13px; color: #fca5a5; line-height: 1.6;
+    }
+
+    .fix-box {
+      background: rgba(63,185,80,.06); border: 1px solid rgba(63,185,80,.18);
+      border-radius: 8px; padding: 12px 14px;
+      font-size: 13px; color: #86efac; line-height: 1.6; margin-bottom: 8px;
+    }
+
+    .code-block {
+      background: #090e15; border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px 16px;
+      font-family: 'JetBrains Mono',monospace; font-size: 12.5px;
+      line-height: 1.65; color: var(--text2); overflow-x: auto; white-space: pre;
+    }
+
+    .refs { display: flex; flex-wrap: wrap; gap: 6px; }
+    .ref-tag {
+      font-size: 11.5px; padding: 3px 9px;
+      background: var(--bg4); border-radius: 6px;
+      color: var(--text3); border: 1px solid var(--border);
+      font-family: 'JetBrains Mono',monospace;
+    }
+
+    /* Tool log */
+    .tool-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .tool-table th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text3); padding: 6px 10px; border-bottom: 1px solid var(--border); }
+    .tool-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--text2); vertical-align: top; }
+    .tool-table tr:last-child td { border-bottom: none; }
+    .tool-table tr:hover td { background: rgba(255,255,255,.02); }
+    .tool-fn { font-family: 'JetBrains Mono',monospace; color: var(--yellow); font-size: 12px; }
+
+    .summary-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
+    .summary-card h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--text3); margin-bottom: 10px; }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #4a5568; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Header ── -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="header-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+      </div>
+      <div class="header-title-group">
+        <div class="header-title">AI Code Review Agent</div>
+        <div class="header-subtitle">Autonomous · Multi-Pass · OWASP · Static Analysis</div>
+      </div>
+      <div class="header-badges">
+        <span class="badge badge-autonomous">Autonomous</span>
+        <span class="badge badge-groq">Groq</span>
+      </div>
+      <div class="header-spacer"></div>
+      <div class="header-model" id="modelLabel">llama-3.3-70b-versatile</div>
+    </div>
+  </header>
+
+  <div class="workspace">
+
+    <!-- ── Sidebar ── -->
+    <aside class="sidebar">
+      <div class="sidebar-scroll">
+
+        <!-- Mode -->
+        <div>
+          <div class="section-label">Review Mode</div>
+          <div class="mode-tabs">
+            <button class="mode-tab active" id="tabPR" onclick="switchMode('pr')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/>
+                <path d="M13 6h3a2 2 0 0 1 2 2v7M6 9v12"/>
+              </svg>
+              GitHub PR
+            </button>
+            <button class="mode-tab" id="tabCode" onclick="switchMode('code')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+              </svg>
+              Code Snippet
+            </button>
+          </div>
+        </div>
+
+        <!-- PR URL -->
+        <div id="prSection">
+          <div class="input-group">
+            <label for="prUrl">Pull Request URL</label>
+            <input type="text" id="prUrl"
+              placeholder="https://github.com/owner/repo/pull/123"
+              onkeydown="if(event.key==='Enter') startReview()" />
+            <div class="hint">Paste any public GitHub PR link</div>
+          </div>
+        </div>
+
+        <!-- Code snippet -->
+        <div id="codeSection" style="display:none">
+          <div class="input-group">
+            <div class="two-col">
+              <div>
+                <label style="display:block;margin-bottom:8px" for="language">Language</label>
+                <select id="language" onchange="updateFilename()">
+                  <option value="python">Python</option>
+                  <option value="javascript">JavaScript</option>
+                  <option value="typescript">TypeScript</option>
+                  <option value="go">Go</option>
+                  <option value="java">Java</option>
+                  <option value="ruby">Ruby</option>
+                  <option value="rust">Rust</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:8px" for="filename">Filename</label>
+                <input type="text" id="filename" value="snippet.py" />
+              </div>
+            </div>
+            <textarea id="codeInput" placeholder="Paste your code here…"></textarea>
+          </div>
+        </div>
+
+        <!-- Advanced -->
+        <div>
+          <button class="adv-toggle" id="advToggle" onclick="toggleAdv()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M9 18l6-6-6-6"/>
+            </svg>
+            Advanced settings
+          </button>
+          <div class="adv-panel" id="advPanel">
+            <div class="input-group">
+              <label for="modelSelect">Model</label>
+              <select id="modelSelect" onchange="document.getElementById('modelLabel').textContent=this.value">
+                <option value="llama-3.3-70b-versatile" selected>llama-3.3-70b-versatile (best)</option>
+                <option value="llama-3.1-70b-versatile">llama-3.1-70b-versatile</option>
+                <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (fast)</option>
+                <option value="gemma2-9b-it">gemma2-9b-it</option>
+                <option value="llama3-8b-8192">llama3-8b-8192</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label for="maxPasses">Max Investigation Passes</label>
+              <input type="text" id="maxPasses" value="10" />
+              <div class="hint">Agent iterates until confident or limit is reached</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CTA -->
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button class="btn-start" id="btnStart" onclick="startReview()">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            Start Review
+          </button>
+          <button class="btn-stop" id="btnStop" onclick="stopReview()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+            </svg>
+            Stop
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Status -->
+      <div class="status-bar">
+        <div class="status-dot idle" id="statusDot"></div>
+        <span id="statusText" style="font-size:13px">Ready to review</span>
+      </div>
+    </aside>
+
+    <!-- ── Main ── -->
+    <div class="main" id="mainArea">
+
+      <!-- Activity -->
+      <div class="panel">
+        <div class="panel-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          <span class="panel-title">Agent Activity</span>
+          <span class="panel-pill" id="actPill">Idle</span>
+          <div style="flex:1"></div>
+          <span style="font-size:12px;color:var(--text3);font-family:'JetBrains Mono',monospace" id="passCount"></span>
+        </div>
+        <div class="feed" id="feed">
+          <div class="empty-feed" id="emptyFeed">
+            <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+              <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+            </svg>
+            <h3>No activity yet</h3>
+            <p>Submit a PR URL or paste code<br/>to start the autonomous review</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Report -->
+      <div class="report-panel panel" id="reportPanel">
+        <div class="panel-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+          </svg>
+          <span class="panel-title">Review Report</span>
+          <span class="panel-pill" id="reportPill"></span>
+          <div style="flex:1"></div>
+          <div id="downloadBtns" style="display:none;align-items:center;gap:8px">
+            <button onclick="downloadPPTX()" style="display:flex;align-items:center;gap:7px;padding:6px 14px;background:linear-gradient(135deg,#1a3a6e,#0d2040);border:1px solid rgba(79,158,255,.35);border-radius:7px;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s" onmouseover="this.style.background='linear-gradient(135deg,#1e4480,#112850)'" onmouseout="this.style.background='linear-gradient(135deg,#1a3a6e,#0d2040)'">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              PowerPoint
+            </button>
+            <button onclick="downloadTXT()" style="display:flex;align-items:center;gap:7px;padding:6px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:7px;color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='var(--text3)'" onmouseout="this.style.borderColor='var(--border)'">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Text
+            </button>
+          </div>
+        </div>
+        <div class="report-body" id="reportBody"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── State ─────────────────────────────────────────────── */
+let mode = 'pr', activeSource = null;
+
+const LANG_EXT = { python:'.py', javascript:'.js', typescript:'.ts', go:'.go', java:'.java', ruby:'.rb', rust:'.rs', other:'' };
+
+/* ── Mode ──────────────────────────────────────────────── */
+function switchMode(m) {
+  mode = m;
+  document.getElementById('tabPR').classList.toggle('active', m==='pr');
+  document.getElementById('tabCode').classList.toggle('active', m==='code');
+  document.getElementById('prSection').style.display = m==='pr' ? '' : 'none';
+  document.getElementById('codeSection').style.display = m==='code' ? '' : 'none';
+}
+
+function updateFilename() {
+  const lang = document.getElementById('language').value;
+  const cur  = document.getElementById('filename').value;
+  const base = cur.replace(/\.[^.]+$/, '') || 'snippet';
+  document.getElementById('filename').value = base + (LANG_EXT[lang] || '');
+}
+
+function toggleAdv() {
+  document.getElementById('advToggle').classList.toggle('open');
+  document.getElementById('advPanel').classList.toggle('open');
+}
+
+/* ── Start / Stop ──────────────────────────────────────── */
+function startReview() {
+  if (activeSource) return;
+  let endpoint, body;
+
+  if (mode === 'pr') {
+    const url = document.getElementById('prUrl').value.trim();
+    if (!url) { highlight('prUrl'); return; }
+    endpoint = '/api/review/pr';
+    body = { pr_url: url, model: getModel(), max_passes: getMaxPasses() };
+  } else {
+    const code = document.getElementById('codeInput').value.trim();
+    if (!code) { highlight('codeInput'); return; }
+    endpoint = '/api/review/snippet';
+    body = { code, language: document.getElementById('language').value, filename: document.getElementById('filename').value || 'snippet.py', model: getModel(), max_passes: getMaxPasses() };
+  }
+
+  resetUI();
+  setRunning(true);
+
+  fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+    .then(res => {
+      if (!res.ok) { addEntry('fe-err-fe', null, 'Server error: ' + res.status); setRunning(false); return; }
+      const reader = res.body.getReader(), dec = new TextDecoder();
+      let buf = '';
+      function read() {
+        reader.read().then(({ done, value }) => {
+          if (done) { setRunning(false); return; }
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split('\n'); buf = lines.pop();
+          for (const ln of lines) {
+            if (ln.startsWith('data: ')) {
+              try { handle(JSON.parse(ln.slice(6))); } catch {}
+            }
+            // ignore SSE keepalive comments (": ping")
+          }
+          read();
+        }).catch(err => { addEntry('fe-err-fe', null, 'Stream error: ' + err.message); setRunning(false); });
+      }
+      activeSource = { cancel: () => reader.cancel() };
+      read();
+    })
+    .catch(err => { addEntry('fe-err-fe', null, 'Connection error: ' + err.message); setRunning(false); });
+}
+
+function stopReview() {
+  if (activeSource) { activeSource.cancel(); activeSource = null; }
+  setRunning(false);
+  setStatus('idle', 'Stopped');
+}
+
+/* ── Event handler ─────────────────────────────────────── */
+function handle(evt) {
+  switch (evt.type) {
+    case 'status':
+      setStatus('running', evt.message);
+      addEntry('fe-status', null, evt.message);
+      break;
+    case 'pass_start':
+      document.getElementById('passCount').textContent = 'Pass ' + evt.pass;
+      addEntry('fe-pass', null, 'Pass ' + evt.pass + ' — investigating…');
+      break;
+    case 'thinking':
+      if (evt.text && evt.text.trim())
+        addEntry('fe-think', null, evt.text.trim().slice(0, 180) + (evt.text.length > 180 ? '…' : ''));
+      break;
+    case 'tool_start':
+      window._lastToolEntry = addToolStart(evt.tool, evt.inputs);
+      break;
+    case 'tool_end':
+      if (window._lastToolEntry) { finishTool(window._lastToolEntry, evt); window._lastToolEntry = null; }
+      break;
+    case 'complete':
+      setStatus('done', 'Review complete');
+      renderReport(evt.review);
+      break;
+    case 'error':
+      addEntry('fe-err-fe', null, evt.message);
+      setStatus('error', 'Error');
+      setRunning(false);
+      break;
+    case 'done':
+      setRunning(false);
+      break;
+  }
+}
+
+/* ── Feed helpers ──────────────────────────────────────── */
+function clearEmpty() { const e = document.getElementById('emptyFeed'); if(e) e.remove(); }
+
+function addEntry(cls, icon, text, sub) {
+  clearEmpty();
+  const feed = document.getElementById('feed');
+  const div = document.createElement('div');
+  div.className = 'fe ' + cls;
+  div.innerHTML = `
+    <div class="fe-dot"></div>
+    <div class="fe-body">
+      <div class="fe-name">${esc(text)}</div>
+      ${sub ? `<div class="fe-sub">${esc(sub)}</div>` : ''}
+    </div>`;
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+  return div;
+}
+
+function addToolStart(name, inputs) {
+  clearEmpty();
+  const feed = document.getElementById('feed');
+  let detail = inputs.filename || inputs.filepath || (inputs.pr_number ? 'PR #'+inputs.pr_number : '');
+  const div = document.createElement('div');
+  div.className = 'fe fe-tool';
+  div.innerHTML = `
+    <div class="spinner"></div>
+    <div class="fe-body">
+      <div class="fe-name">${esc(name)}${detail ? ` <span style="color:var(--text3);font-size:12px;font-family:'JetBrains Mono',monospace">${esc(detail)}</span>` : ''}</div>
+    </div>
+    <div class="fe-dur">—</div>`;
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+  return div;
+}
+
+function finishTool(div, evt) {
+  const spinner = div.querySelector('.spinner');
+  const dot = document.createElement('div');
+  dot.className = 'fe-dot';
+  spinner.replaceWith(dot);
+
+  if (evt.success) {
+    div.classList.replace('fe-tool', 'fe-ok');
+    if (evt.summary) {
+      const sub = document.createElement('div');
+      sub.className = 'fe-sub';
+      sub.textContent = evt.summary;
+      div.querySelector('.fe-body').appendChild(sub);
+    }
+  } else {
+    div.classList.replace('fe-tool', 'fe-err-fe');
+  }
+
+  if (evt.duration_ms !== undefined) {
+    div.querySelector('.fe-dur').textContent = evt.duration_ms < 1000 ? evt.duration_ms+'ms' : (evt.duration_ms/1000).toFixed(1)+'s';
+  }
+  document.getElementById('feed').scrollTop = 99999;
+}
+
+/* ── Report renderer ───────────────────────────────────── */
+function renderReport(r) {
+  document.getElementById('mainArea').classList.add('has-report');
+  const body = document.getElementById('reportBody');
+  body.innerHTML = '';
+
+  // Verdict
+  const vc = { APPROVE:'approve', REQUEST_CHANGES:'changes', REJECT:'reject' }[r.verdict] || 'changes';
+  const vl = { APPROVE:'Approved', REQUEST_CHANGES:'Request Changes', REJECT:'Rejected' }[r.verdict] || r.verdict;
+  body.insertAdjacentHTML('beforeend', `
+    <div class="verdict-card verdict-${vc}">
+      <div><span class="verdict-label">${vl}</span></div>
+      <div>
+        <div class="verdict-text">${esc(r.executive_summary||'')}</div>
+        ${r.blocking_issues?.length ? `<div class="verdict-blockers">Blocking: ${r.blocking_issues.join(', ')}</div>` : ''}
+      </div>
+    </div>`);
+
+  // Scores
+  const s = r.scores || {};
+  const rat = s.rationale || {};
+  body.insertAdjacentHTML('beforeend', `<div class="scores-row">
+    ${scoreCard('Code Quality', s.code_quality, rat.code_quality)}
+    ${scoreCard('Security',     s.security,     rat.security)}
+    ${scoreCard('Performance',  s.performance,  rat.performance)}
+    ${scoreCard('Overall',      s.overall,      rat.overall)}
+  </div>`);
+
+  // Findings
+  const findings = r.findings || [];
+  if (findings.length) {
+    const sorted = [...findings].sort((a,b) => ({critical:0,high:1,medium:2,low:3,info:4}[a.severity]??5) - ({critical:0,high:1,medium:2,low:3,info:4}[b.severity]??5));
+    body.insertAdjacentHTML('beforeend', `<div>
+      <div class="findings-head"><div class="findings-title">Findings</div><div class="findings-ct">${findings.length} issue${findings.length!==1?'s':''}</div></div>
+      ${sorted.map(renderFinding).join('')}
+    </div>`);
+  } else {
+    body.insertAdjacentHTML('beforeend', `<div class="summary-card" style="text-align:center;padding:32px">
+      <p style="font-size:28px;margin-bottom:8px">✓</p>
+      <p style="font-size:14px;color:var(--green)">No issues found</p>
+    </div>`);
+  }
+
+  // Tool log
+  if (r.tool_usage_log?.length) {
+    body.insertAdjacentHTML('beforeend', `<div class="summary-card">
+      <h3>Tool Usage Log</h3>
+      <table class="tool-table">
+        <thead><tr><th>Tool</th><th>Purpose</th><th>Finding</th></tr></thead>
+        <tbody>${r.tool_usage_log.map(t=>`<tr><td class="tool-fn">${esc(t.tool)}</td><td>${esc(t.purpose)}</td><td>${esc(t.key_finding)}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>`);
+  }
+
+  document.getElementById('reportPill').textContent = findings.length + ' finding' + (findings.length!==1?'s':'');
+  _lastReview = r;
+  document.getElementById('downloadBtns').style.display = 'flex';
+  body.scrollTop = 0;
+}
+
+function scoreCard(label, val, rationale) {
+  const v = val||0;
+  const c = v>=8?'#3fb950':v>=6?'#e3b341':'#f85149';
+  const rat = rationale ? `<div style="margin-top:10px;font-size:12px;color:var(--text3);line-height:1.5;border-top:1px solid var(--border);padding-top:10px">${esc(rationale)}</div>` : '';
+  return `<div class="score-card">
+    <div class="score-lbl">${label}</div>
+    <div class="score-num" style="color:${c}">${v}<span>/10</span></div>
+    <div class="score-track"><div class="score-fill" style="width:${v*10}%;background:${c}"></div></div>
+    ${rat}
+  </div>`;
+}
+
+function renderFinding(f) {
+  const sc = 'sev-'+(f.severity||'info');
+  const cc = 'cat-'+(f.category||'');
+  const loc = f.line_start ? `${f.file}:${f.line_start}${f.line_end&&f.line_end!==f.line_start?'-'+f.line_end:''}` : f.file;
+  const catLabel = {bug:'Bug',security:'Security',performance:'Performance',code_quality:'Code Quality'}[f.category]||f.category;
+
+  let body = `<div class="f-section"><div class="f-section-lbl">Description</div><div class="f-desc">${esc(f.description||'')}</div></div>`;
+  if (f.exploit_scenario) body += `<div class="f-section"><div class="f-section-lbl">Exploit Scenario</div><div class="exploit-box">${esc(f.exploit_scenario)}</div></div>`;
+  if (f.fix) {
+    body += `<div class="f-section"><div class="f-section-lbl">Fix</div>`;
+    if (f.fix.description) body += `<div class="fix-box">${esc(f.fix.description)}</div>`;
+    if (f.fix.code?.trim()) body += `<div class="code-block">${esc(f.fix.code.trim())}</div>`;
+    body += `</div>`;
+  }
+  if (f.references?.length) body += `<div class="f-section"><div class="f-section-lbl">References</div><div class="refs">${f.references.map(r=>`<span class="ref-tag">${esc(r)}</span>`).join('')}</div></div>`;
+
+  return `<div class="finding-card">
+    <div class="finding-hdr" onclick="this.parentElement.classList.toggle('expanded')">
+      <span class="sev-pill ${sc}">${(f.severity||'info').toUpperCase()}</span>
+      <span class="cat-pill ${cc}">${catLabel}</span>
+      <span class="finding-title-text">${esc(f.title||'')}</span>
+      <span class="finding-file-lbl">${esc(loc)}</span>
+      <svg class="finding-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
+    </div>
+    <div class="finding-body">${body}</div>
+  </div>`;
+}
+
+/* ── UI state ──────────────────────────────────────────── */
+function resetUI() {
+  document.getElementById('feed').innerHTML = '';
+  document.getElementById('passCount').textContent = '';
+  document.getElementById('mainArea').classList.remove('has-report');
+  document.getElementById('reportBody').innerHTML = '';
+  document.getElementById('reportPill').textContent = '';
+  window._lastToolEntry = null;
+}
+
+function setRunning(on) {
+  document.getElementById('btnStart').style.display = on ? 'none' : '';
+  document.getElementById('btnStop').style.display  = on ? 'flex' : 'none';
+  document.getElementById('actPill').textContent = on ? 'Running' : 'Idle';
+  document.getElementById('actPill').classList.toggle('running', on);
+  if (!on) activeSource = null;
+}
+
+function setStatus(state, text) {
+  document.getElementById('statusDot').className = 'status-dot ' + state;
+  document.getElementById('statusText').textContent = text;
+}
+
+function highlight(id) {
+  const el = document.getElementById(id);
+  el.style.borderColor = 'var(--red)';
+  el.style.boxShadow = '0 0 0 3px rgba(248,81,73,.15)';
+  setTimeout(() => { el.style.borderColor = ''; el.style.boxShadow = ''; }, 1500);
+  el.focus();
+}
+
+function esc(s) {
+  return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function getModel()     { return document.getElementById('modelSelect').value; }
+function getMaxPasses() { return parseInt(document.getElementById('maxPasses').value,10)||10; }
+
+/* ── Download ──────────────────────────────────────────── */
+let _lastReview = null;
+
+const THEME = {
+  bg:       '0D1117',
+  bg1:      '161B22',
+  accent:   '4F9EFF',
+  green:    '3FB950',
+  yellow:   'E3B341',
+  red:      'F85149',
+  purple:   'A78BFA',
+  white:    'F0F6FC',
+  gray:     '8B949E',
+  darkgray: '30363D',
+};
+
+function scoreColor(v) {
+  return v >= 8 ? THEME.green : v >= 6 ? THEME.yellow : THEME.red;
+}
+
+function verdictColor(v) {
+  return v === 'APPROVE' ? THEME.green : v === 'REJECT' ? THEME.red : THEME.yellow;
+}
+
+function sevColor(s) {
+  return {critical:THEME.red, high:'E66F47', medium:THEME.yellow, low:'38BDF8', info:THEME.gray}[s] || THEME.gray;
+}
+
+async function downloadPPTX() {
+  if (!_lastReview) return;
+  const r = _lastReview;
+  const s = r.scores || {};
+  const rat = s.rationale || {};
+  const sevOrder = {critical:0,high:1,medium:2,low:3,info:4};
+  const findings = [...(r.findings||[])].sort((a,b)=>(sevOrder[a.severity]??5)-(sevOrder[b.severity]??5));
+
+  const pptx = new PptxGenJS();
+  pptx.layout = 'LAYOUT_WIDE';
+  pptx.title = 'AI Code Review Report';
+
+  // ── Slide 1: Title ──────────────────────────────────────
+  const s1 = pptx.addSlide();
+  s1.background = { color: THEME.bg };
+
+  // Left accent bar
+  s1.addShape(pptx.ShapeType.rect, { x:0, y:0, w:0.08, h:'100%', fill:{color:THEME.accent} });
+
+  // Title
+  s1.addText('AI Code Review Agent', { x:0.4, y:0.6, w:9, h:0.8, fontSize:36, bold:true, color:THEME.white, fontFace:'Calibri' });
+  s1.addText('Autonomous · Multi-Pass · OWASP · Static Analysis', { x:0.4, y:1.4, w:9, h:0.4, fontSize:14, color:THEME.gray, fontFace:'Calibri' });
+
+  // Divider
+  s1.addShape(pptx.ShapeType.rect, { x:0.4, y:1.9, w:8, h:0.03, fill:{color:THEME.darkgray} });
+
+  // PR Title
+  const prTitle = r.pr_title || r.pr_url || 'Code Review';
+  s1.addText(prTitle, { x:0.4, y:2.1, w:11, h:0.7, fontSize:20, bold:true, color:THEME.accent, fontFace:'Calibri', wrap:true });
+
+  // Verdict badge
+  const vcol = verdictColor(r.verdict);
+  s1.addShape(pptx.ShapeType.roundRect, { x:0.4, y:3.0, w:2.2, h:0.55, fill:{color:vcol+'22'}, line:{color:vcol, width:1.5}, rectRadius:0.1 });
+  s1.addText(r.verdict || '', { x:0.4, y:3.0, w:2.2, h:0.55, fontSize:13, bold:true, color:vcol, align:'center', valign:'middle', fontFace:'Calibri' });
+
+  // Overall score
+  s1.addText(`Overall Score: ${s.overall}/10`, { x:3.0, y:3.0, w:3, h:0.55, fontSize:14, bold:true, color:scoreColor(s.overall||0), fontFace:'Calibri' });
+
+  // URL
+  s1.addText(r.pr_url || '', { x:0.4, y:3.8, w:12, h:0.3, fontSize:10, color:THEME.gray, fontFace:'Courier New' });
+  s1.addText(`Generated: ${new Date().toLocaleString()}`, { x:0.4, y:4.2, w:8, h:0.3, fontSize:10, color:THEME.gray, fontFace:'Calibri' });
+
+  // ── Slide 2: Executive Summary ──────────────────────────
+  const s2 = pptx.addSlide();
+  s2.background = { color: THEME.bg };
+  s2.addShape(pptx.ShapeType.rect, { x:0, y:0, w:0.08, h:'100%', fill:{color:THEME.accent} });
+  s2.addText('Executive Summary', { x:0.4, y:0.3, w:12, h:0.6, fontSize:26, bold:true, color:THEME.white, fontFace:'Calibri' });
+  s2.addShape(pptx.ShapeType.rect, { x:0.4, y:1.0, w:12, h:0.03, fill:{color:THEME.darkgray} });
+  s2.addText(r.executive_summary || '', { x:0.4, y:1.2, w:12, h:2.5, fontSize:14, color:THEME.gray, fontFace:'Calibri', wrap:true, valign:'top' });
+
+  // Blocking issues
+  if (r.blocking_issues?.length) {
+    s2.addText('Blocking Issues', { x:0.4, y:3.8, w:5, h:0.4, fontSize:13, bold:true, color:THEME.red, fontFace:'Calibri' });
+    s2.addText(r.blocking_issues.join(' · '), { x:0.4, y:4.2, w:12, h:0.4, fontSize:11, color:THEME.red+'cc', fontFace:'Calibri' });
+  }
+
+  // ── Slide 3: Scores Dashboard ───────────────────────────
+  const s3 = pptx.addSlide();
+  s3.background = { color: THEME.bg };
+  s3.addShape(pptx.ShapeType.rect, { x:0, y:0, w:0.08, h:'100%', fill:{color:THEME.accent} });
+  s3.addText('Quality Scores', { x:0.4, y:0.3, w:12, h:0.6, fontSize:26, bold:true, color:THEME.white, fontFace:'Calibri' });
+  s3.addShape(pptx.ShapeType.rect, { x:0.4, y:1.0, w:12, h:0.03, fill:{color:THEME.darkgray} });
+
+  const scoreItems = [
+    { label:'Code Quality', val:s.code_quality||0, rat:rat.code_quality||'' },
+    { label:'Security',     val:s.security||0,     rat:rat.security||'' },
+    { label:'Performance',  val:s.performance||0,  rat:rat.performance||'' },
+    { label:'Overall',      val:s.overall||0,      rat:rat.overall||'' },
+  ];
+
+  scoreItems.forEach((item, i) => {
+    const col = i % 2 === 0 ? 0.4 : 6.7;
+    const row = i < 2 ? 1.2 : 3.2;
+    const c = scoreColor(item.val);
+
+    s3.addShape(pptx.ShapeType.roundRect, { x:col, y:row, w:5.8, h:1.7, fill:{color:THEME.bg1}, line:{color:THEME.darkgray, width:1}, rectRadius:0.1 });
+    s3.addText(item.label.toUpperCase(), { x:col+0.2, y:row+0.15, w:3, h:0.3, fontSize:9, bold:true, color:THEME.gray, fontFace:'Calibri', charSpacing:2 });
+    s3.addText(`${item.val}`, { x:col+0.2, y:row+0.4, w:1.2, h:0.7, fontSize:40, bold:true, color:c, fontFace:'Calibri' });
+    s3.addText('/10', { x:col+1.1, y:row+0.7, w:0.8, h:0.3, fontSize:13, color:THEME.gray, fontFace:'Calibri' });
+    // Score bar track
+    s3.addShape(pptx.ShapeType.rect, { x:col+0.2, y:row+1.2, w:5.2, h:0.1, fill:{color:THEME.darkgray} });
+    s3.addShape(pptx.ShapeType.rect, { x:col+0.2, y:row+1.2, w:5.2*(item.val/10), h:0.1, fill:{color:c} });
+    if (item.rat) s3.addText(item.rat, { x:col+0.2, y:row+1.35, w:5.2, h:0.3, fontSize:9, color:THEME.gray, fontFace:'Calibri', wrap:true });
+  });
+
+  // ── Slides 4+: Findings ─────────────────────────────────
+  if (findings.length === 0) {
+    const sf = pptx.addSlide();
+    sf.background = { color: THEME.bg };
+    sf.addShape(pptx.ShapeType.rect, { x:0, y:0, w:0.08, h:'100%', fill:{color:THEME.green} });
+    sf.addText('Findings', { x:0.4, y:0.3, w:12, h:0.6, fontSize:26, bold:true, color:THEME.white, fontFace:'Calibri' });
+    sf.addText('No issues found.', { x:0.4, y:2.5, w:12, h:0.6, fontSize:18, color:THEME.green, fontFace:'Calibri', align:'center' });
+  } else {
+    findings.forEach((f, idx) => {
+      const sf = pptx.addSlide();
+      sf.background = { color: THEME.bg };
+      const sc = sevColor(f.severity);
+      sf.addShape(pptx.ShapeType.rect, { x:0, y:0, w:0.08, h:'100%', fill:{color:sc} });
+
+      // Finding number & severity badge
+      sf.addText(`Finding ${idx+1} of ${findings.length}`, { x:0.4, y:0.2, w:4, h:0.3, fontSize:10, color:THEME.gray, fontFace:'Calibri' });
+      sf.addShape(pptx.ShapeType.roundRect, { x:0.4, y:0.55, w:1.6, h:0.38, fill:{color:sc+'33'}, line:{color:sc, width:1}, rectRadius:0.08 });
+      sf.addText((f.severity||'').toUpperCase(), { x:0.4, y:0.55, w:1.6, h:0.38, fontSize:10, bold:true, color:sc, align:'center', valign:'middle', fontFace:'Calibri' });
+      sf.addShape(pptx.ShapeType.roundRect, { x:2.15, y:0.55, w:1.8, h:0.38, fill:{color:THEME.bg1}, line:{color:THEME.darkgray, width:1}, rectRadius:0.08 });
+      sf.addText(({bug:'Bug',security:'Security',performance:'Performance',code_quality:'Code Quality'}[f.category]||f.category||''), { x:2.15, y:0.55, w:1.8, h:0.38, fontSize:10, color:THEME.gray, align:'center', valign:'middle', fontFace:'Calibri' });
+
+      // Title
+      sf.addText(f.title||'', { x:0.4, y:1.05, w:12.5, h:0.65, fontSize:18, bold:true, color:THEME.white, fontFace:'Calibri', wrap:true });
+      // File
+      sf.addText(f.file + (f.line_start ? ':'+f.line_start : ''), { x:0.4, y:1.7, w:10, h:0.28, fontSize:10, color:THEME.gray, fontFace:'Courier New' });
+      sf.addShape(pptx.ShapeType.rect, { x:0.4, y:2.05, w:12.5, h:0.03, fill:{color:THEME.darkgray} });
+
+      // Description
+      sf.addText('Description', { x:0.4, y:2.15, w:3, h:0.28, fontSize:10, bold:true, color:THEME.gray, fontFace:'Calibri', charSpacing:1 });
+      sf.addText(f.description||'', { x:0.4, y:2.45, w:12.5, h:1.0, fontSize:11, color:THEME.gray, fontFace:'Calibri', wrap:true, valign:'top' });
+
+      // Fix
+      if (f.fix?.description) {
+        sf.addText('Suggested Fix', { x:0.4, y:3.55, w:3, h:0.28, fontSize:10, bold:true, color:THEME.green, fontFace:'Calibri', charSpacing:1 });
+        sf.addText(f.fix.description, { x:0.4, y:3.85, w:12.5, h:0.7, fontSize:11, color:THEME.green+'cc', fontFace:'Calibri', wrap:true, valign:'top' });
+      }
+
+      // References
+      if (f.references?.length) {
+        sf.addText(f.references.join('  ·  '), { x:0.4, y:4.9, w:12, h:0.3, fontSize:9, color:THEME.gray, fontFace:'Courier New' });
+      }
+    });
+  }
+
+  // ── Last slide: Tool usage ──────────────────────────────
+  if (r.tool_usage_log?.length) {
+    const st = pptx.addSlide();
+    st.background = { color: THEME.bg };
+    st.addShape(pptx.ShapeType.rect, { x:0, y:0, w:0.08, h:'100%', fill:{color:THEME.purple} });
+    st.addText('Agent Tool Usage', { x:0.4, y:0.3, w:12, h:0.6, fontSize:26, bold:true, color:THEME.white, fontFace:'Calibri' });
+    st.addShape(pptx.ShapeType.rect, { x:0.4, y:1.0, w:12, h:0.03, fill:{color:THEME.darkgray} });
+
+    const rows = [
+      [{ text:'Tool', options:{bold:true, color:THEME.gray} }, { text:'Purpose', options:{bold:true, color:THEME.gray} }, { text:'Key Finding', options:{bold:true, color:THEME.gray} }],
+      ...r.tool_usage_log.slice(0,10).map(t => [
+        { text: t.tool||'', options:{color:THEME.yellow, fontFace:'Courier New'} },
+        { text: t.purpose||'', options:{color:THEME.gray} },
+        { text: t.key_finding||'', options:{color:THEME.gray} },
+      ])
+    ];
+
+    st.addTable(rows, {
+      x:0.4, y:1.2, w:12.5, colW:[3,4,5.5],
+      border:{type:'solid', color:THEME.darkgray, pt:0.5},
+      fill:{color:THEME.bg1},
+      fontSize:10, fontFace:'Calibri',
+      rowH:0.32,
+    });
+  }
+
+  await pptx.writeFile({ fileName: `code-review-${Date.now()}.pptx` });
+}
+
+function downloadTXT() {
+  if (!_lastReview) return;
+  const r = _lastReview;
+  const s = r.scores || {};
+  const rat = s.rationale || {};
+  const SEP = '═'.repeat(72);
+  const sep = '─'.repeat(72);
+
+  const lines = [
+    SEP,
+    '  AI CODE REVIEW REPORT',
+    SEP,
+    `  PR     : ${r.pr_title || ''}`,
+    `  URL    : ${r.pr_url || ''}`,
+    `  VERDICT: ${r.verdict || ''}`,
+    `  DATE   : ${new Date().toLocaleString()}`,
+    SEP, '',
+    'EXECUTIVE SUMMARY',
+    sep,
+    r.executive_summary || '', '',
+    'SCORES',
+    sep,
+    `  Code Quality  : ${s.code_quality}/10  ${rat.code_quality||''}`,
+    `  Security      : ${s.security}/10  ${rat.security||''}`,
+    `  Performance   : ${s.performance}/10  ${rat.performance||''}`,
+    `  Overall       : ${s.overall}/10  ${rat.overall||''}`,
+    '',
+  ];
+
+  const sevOrder = {critical:0,high:1,medium:2,low:3,info:4};
+  const findings = [...(r.findings||[])].sort((a,b)=>(sevOrder[a.severity]??5)-(sevOrder[b.severity]??5));
+
+  if (findings.length) {
+    lines.push(`FINDINGS (${findings.length})`, sep, '');
+    findings.forEach((f, i) => {
+      lines.push(`[${i+1}] [${(f.severity||'').toUpperCase()}] ${f.title||''}`);
+      lines.push(`    Category : ${f.category}`);
+      lines.push(`    File     : ${f.file}${f.line_start?':'+f.line_start:''}`);
+      lines.push(`    ${f.description||''}`);
+      if (f.exploit_scenario) lines.push(`    Exploit  : ${f.exploit_scenario}`);
+      if (f.fix?.description) lines.push(`    Fix      : ${f.fix.description}`);
+      if (f.references?.length) lines.push(`    Refs     : ${f.references.join(', ')}`);
+      lines.push('');
+    });
+  }
+
+  if (r.blocking_issues?.length) {
+    lines.push('BLOCKING ISSUES', sep);
+    r.blocking_issues.forEach(b => lines.push(`  • ${b}`));
+    lines.push('');
+  }
+
+  lines.push(SEP);
+  lines.push('  Generated by AI Code Review Agent');
+  lines.push(SEP);
+
+  const blob = new Blob([lines.join('\n')], {type:'text/plain'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `code-review-${Date.now()}.txt`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+</script>
+</body>
+</html>

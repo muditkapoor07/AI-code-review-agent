@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "ai-code-review-agent"
+version = "0.1.0"
+description = "Autonomous AI-powered code review agent using Claude"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.0",
+    "radon>=6.0",
+    "bandit>=1.8",
+    "pip-audit>=2.7",
+    "rich>=13.0",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+code-review = "main:main_cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
