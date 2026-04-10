@@ -52,7 +52,8 @@ Manual code reviews are time-consuming, inconsistent, and often miss subtle secu
 - **Structured report** — scores (1–10) for Code Quality, Security, Performance, Overall with rationale
 - **Download report** — export as `.pptx` PowerPoint deck or formatted `.txt` file
 - **Multi-model support** — switch between Groq LLaMA 3.3 70B, LLaMA 3.1 70B, LLaMA 3.1 8B, Gemma2
-- **Bulletproof schema coercion** — 3-layer defence normalises any LLM output inconsistency (wrong types, dict-as-string, fuzzy enums, trailing commas) without crashing
+- **Bulletproof output pipeline** — 5-stage recovery: extract → repair → complete-truncated-JSON → nuclear regex fallback → absolute minimal report; never crashes regardless of LLM output
+- **Self-tracked tool log** — agent tracks tool calls internally, never asks LLM to reproduce them (eliminates the #1 cause of token overflow and JSON truncation)
 - **Render-ready** — ships with `render.yaml` for one-click cloud deployment
 
 ---
@@ -106,13 +107,19 @@ Manual code reviews are time-consuming, inconsistent, and often miss subtle secu
 
 1. User submits a PR URL or code snippet via the browser
 2. FastAPI starts a background thread and opens an SSE stream to the browser
-3. `CodeReviewAgent` enters the agentic loop — calls Groq with all 11 tool schemas
-4. Groq decides which tools to call; agent executes them and streams events to UI
-5. Each tool result is appended to message history (truncated to stay within token limits)
+3. `CodeReviewAgent` enters the agentic loop — calls Groq with all 13 tool schemas
+4. Groq decides which tools to call; agent executes them, streams events to UI, and **tracks the tool log internally**
+5. Each tool result is appended to message history (truncated to stay within token limits, sliding window of 12)
 6. When Groq returns `stop` or max passes is reached, agent produces `<final_review>` JSON
-7. JSON is repaired (`_repair_json`) then validated against Pydantic schema; coercion validators normalise any LLM type mismatches; a last-resort `_strip_problematic_fields` pass retries on any remaining failure
-8. Validated review is streamed to browser as a `complete` event
-9. UI renders the report; user can download as `.pptx` or `.txt`
+7. **5-stage recovery pipeline** processes the raw output:
+   - Stage 1: extract JSON from tags, strip fences, unwrap `[{...}]` list wrappers
+   - Stage 2: direct parse → repair trailing commas/Python booleans → complete truncated JSON
+   - Stage 3: **nuclear regex extraction** — pulls individual fields from raw text if JSON is still unparseable
+   - Stage 4: `_strip_problematic_fields` normalises all field types to safe defaults
+   - Stage 5: absolute fallback — strips findings and returns minimal valid report rather than crashing
+8. Agent's own tool log is injected into the result (overrides any LLM-generated version)
+9. Validated review is streamed to browser as a `complete` event
+10. UI renders the report; user can download as `.pptx` or `.txt`
 
 ---
 
@@ -287,7 +294,7 @@ AI-code-review-agent/
 
 ### Key files explained
 
-**`agent/core.py`** — The brain. Implements the `THINK → ACT → OBSERVE → REPEAT` loop using Groq's tool-use API. Handles message history trimming, error recovery, forced final-answer synthesis, JSON repair (`_repair_json`), and the last-resort `_strip_problematic_fields` normalisation pass.
+**`agent/core.py`** — The brain. Implements the `THINK → ACT → OBSERVE → REPEAT` loop using Groq's tool-use API. Key design: tracks `tool_usage_log` internally so the LLM never wastes tokens reproducing it. 5-stage output recovery pipeline: `_extract_json_str` → `_parse_with_recovery` → `_nuclear_extract` → `_strip_problematic_fields` → absolute fallback. Separate `_MAX_TOKENS` (2048, investigation) and `_MAX_TOKENS_FINAL` (4096, final JSON) limits.
 
 **`agent/schemas.py`** — Pydantic v2 models with coercion validators on every field. Each validator is designed to accept the widest possible LLM output (fuzzy enum matching, dict→string coercion, string→int clamping, etc.) so schema validation never crashes regardless of model inconsistencies.
 
@@ -334,7 +341,9 @@ Groq free tier limits: 100K tokens/day, 12K tokens/minute (70B model). The agent
 - Capping tool results at **1,500 characters** in message history
 - Keeping only the last **12 messages** in context (sliding window)
 - Truncating file content to **80 lines** and diffs to **50 lines**
-- Using a compact system prompt (~200 tokens vs ~800 in verbose mode)
+- Using a compact system prompt (~150 tokens)
+- **Tracking tool log internally** — LLM never wastes tokens reproducing it in the final JSON
+- Separate token budgets: **2,048** tokens for investigation turns, **4,096** for final JSON generation
 
 ### Streaming
 Reviews stream results in real time via SSE — the user sees tool call activity immediately rather than waiting for the full review to complete. SSE keepalive pings every 30 seconds prevent connection timeouts on Render's free tier.
@@ -500,13 +509,18 @@ The model timed out or hit max passes without synthesizing. Try:
 - Use `llama-3.3-70b-versatile` (more instruction-following than 8B)
 - Try a smaller PR with fewer changed files
 
-### `Final review schema validation failed`
-The agent self-heals most output inconsistencies automatically via a 3-layer recovery system:
-1. **Field coercion** — every Pydantic field validator normalises wrong types (dicts-as-strings, fuzzy enums, clamped ints, etc.)
-2. **JSON repair** — trailing commas and Python `None/True/False` are fixed before parsing
-3. **Last-resort strip** — `_strip_problematic_fields` rewrites complex nested fields to safe defaults before a second validation attempt
+### `Final review schema validation failed` or JSON parse errors
+The agent now has a **5-stage recovery pipeline** that handles every known failure mode:
 
-If you still see this error, the model produced output too malformed to recover. Switch to `llama-3.3-70b-versatile` which is the most schema-compliant model.
+| Stage | What it fixes |
+|---|---|
+| Extract | `<final_review>` tags, markdown fences, list-wrapped `[{...}]` JSON |
+| Repair | Trailing commas, Python `None/True/False` literals |
+| Complete | Truncated JSON cut off mid-output due to token limit |
+| Nuclear | Regex extracts `pr_title`, `verdict`, `scores`, `findings` from raw text if JSON is still broken |
+| Fallback | Returns a minimal valid report with empty findings rather than crashing |
+
+This error should **never appear** in normal operation. If it does, it means Groq returned a completely blank response — check rate limits and try again.
 
 ### `mixtral-8x7b-32768 has been decommissioned`
 This model was deprecated by Groq. Use `llama-3.3-70b-versatile` or `gemma2-9b-it` instead.
@@ -519,7 +533,8 @@ Render free tier spins down after inactivity. The first request after sleep take
 ## 🗺 Roadmap
 
 ### Near-term
-- [x] **Bulletproof schema coercion** — 3-layer defence handles any LLM output inconsistency
+- [x] **Bulletproof 5-stage output pipeline** — never crashes; nuclear regex fallback extracts fields from any output
+- [x] **Self-tracked tool log** — eliminates #1 source of JSON truncation (LLM no longer wastes tokens reproducing it)
 - [x] **Redundant code detection** — unused imports, duplicate definitions, dead code
 - [x] **Bug detection** — mutable defaults, bare excepts, silent swallow, None comparisons, shadowed builtins
 - [ ] **Multi-file PR support** — smarter file prioritization for PRs with 50+ files
