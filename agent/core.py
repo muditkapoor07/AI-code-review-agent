@@ -18,7 +18,8 @@ from utils.logger import ReviewLogger
 
 _DEFAULT_MODEL = "llama-3.3-70b-versatile"
 _DEFAULT_MAX_PASSES = 10
-_MAX_TOKENS = 2048
+_MAX_TOKENS = 2048          # per-turn limit during investigation
+_MAX_TOKENS_FINAL = 4096    # higher limit for final JSON output
 _MAX_TOOL_RESULT_CHARS = 1500  # truncate large tool results in history
 _MAX_HISTORY_MESSAGES = 12     # keep only recent messages to stay under TPM
 _GROQ_BASE_URL = "https://api.groq.com/openai/v1"
@@ -213,7 +214,7 @@ class CodeReviewAgent:
         })
         response = self._client.chat.completions.create(
             model=self._model,
-            max_tokens=_MAX_TOKENS,
+            max_tokens=_MAX_TOKENS_FINAL,
             messages=messages,
         )
         return response.choices[0].message.content or ""
@@ -255,14 +256,20 @@ class CodeReviewAgent:
         try:
             data = json.loads(json_str)
         except json.JSONDecodeError:
-            # Try repairing common LLM mistakes: trailing commas, Python booleans
+            # Attempt 2: repair common mistakes (trailing commas, Python booleans)
             repaired = _repair_json(json_str)
             try:
                 data = json.loads(repaired)
-            except json.JSONDecodeError as exc:
-                raise AgentLoopError(
-                    f"Failed to parse final_review JSON: {exc}\n\n{json_str[:1000]}"
-                )
+            except json.JSONDecodeError:
+                # Attempt 3: complete truncated JSON (model hit token limit mid-output)
+                completed = _complete_truncated_json(repaired)
+                completed = _repair_json(completed)
+                try:
+                    data = json.loads(completed)
+                except json.JSONDecodeError as exc:
+                    raise AgentLoopError(
+                        f"Failed to parse final_review JSON: {exc}\n\n{json_str[:1000]}"
+                    )
 
         # Post-parse safety: unwrap any remaining list wrapping
         if isinstance(data, list):
@@ -301,6 +308,54 @@ def _repair_json(s: str) -> str:
     s = s.replace(": True", ": true").replace(":True", ":true")
     s = s.replace(": False", ": false").replace(":False", ":false")
     return s
+
+
+def _complete_truncated_json(s: str) -> str:
+    """Attempt to close a JSON string that was cut off mid-output.
+
+    Walks the string tracking open strings, arrays, and objects, then
+    appends the minimum closing tokens needed to make it parseable.
+    """
+    in_string = False
+    escape_next = False
+    stack: list[str] = []   # '{' or '['
+
+    for ch in s:
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\" and in_string:
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in ('{', '['):
+            stack.append(ch)
+        elif ch == '}' and stack and stack[-1] == '{':
+            stack.pop()
+        elif ch == ']' and stack and stack[-1] == '[':
+            stack.pop()
+
+    suffix = ""
+    # If we're inside a string, close it
+    if in_string:
+        suffix += '"'
+
+    # Remove any trailing comma before we close
+    trimmed = (s + suffix).rstrip()
+    trimmed = re.sub(r",\s*$", "", trimmed)
+
+    # Close open structures in reverse order
+    for opener in reversed(stack):
+        if opener == '{':
+            trimmed += '}'
+        else:
+            trimmed += ']'
+
+    return trimmed
 
 
 def _strip_problematic_fields(data: dict) -> None:
