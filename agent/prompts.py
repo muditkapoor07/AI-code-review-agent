@@ -32,7 +32,14 @@ Language: {language}
 {code}
 ```
 
-Begin your investigation. Use `analyze_syntax`, `analyze_complexity`, `run_bandit_scan`, \
-`extract_functions`, and `search_patterns` to deeply analyze this code. \
+Begin your investigation. Run ALL of the following tools on this code:
+1. `analyze_syntax` — check for syntax errors
+2. `analyze_complexity` — cyclomatic complexity and maintainability
+3. `run_bandit_scan` — security vulnerabilities (Python only)
+4. `extract_functions` — map structure
+5. `detect_redundant_code` — unused imports, dead code, duplicate definitions
+6. `detect_bugs` — mutable defaults, bare excepts, None comparisons, shadowed builtins, silent swallowing
+7. `search_patterns` — injection, hardcoded secrets, eval, debug artifacts
+
 When done, produce your final structured review.
 """

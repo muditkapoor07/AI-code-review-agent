@@ -46,6 +46,8 @@ Manual code reviews are time-consuming, inconsistent, and often miss subtle secu
 - **Dependency CVE audit** — detects vulnerable packages in `requirements.txt` via `pip-audit`
 - **Cyclomatic complexity analysis** — flags high-complexity functions using `radon`
 - **Pattern search engine** — regex hunts for `eval()`, `shell=True`, SQL concatenation, debug artifacts
+- **Redundant code detection** — unused imports, duplicate definitions, dead code after `return`/`raise`/`break`
+- **Bug detection** — mutable defaults, bare excepts, silent exception swallowing, `== None`, shadowed builtins, `is` with literals; JS: loose null checks, `eval()`, `innerHTML`, `debugger`
 - **Real-time streaming UI** — live activity feed shows every tool call as it happens
 - **Structured report** — scores (1–10) for Code Quality, Security, Performance, Overall with rationale
 - **Download report** — export as `.pptx` PowerPoint deck or formatted `.txt` file
@@ -94,6 +96,8 @@ Manual code reviews are time-consuming, inconsistent, and often miss subtle secu
                           │  │ run_dependency_audit(pip-aud)│    │
                           │  │ extract_functions            │    │
                           │  │ search_patterns              │    │
+                          │  │ detect_redundant_code        │    │
+                          │  │ detect_bugs                  │    │
                           │  └─────────────────────────────┘    │
                           └──────────────────────────────────────┘
 ```
@@ -267,7 +271,7 @@ AI-code-review-agent/
 │   ├── github_tools.py           # fetch_pr_metadata, fetch_pr_diff, etc.
 │   ├── static_analysis_tools.py  # analyze_complexity, analyze_syntax, count_code_metrics
 │   ├── security_tools.py         # run_bandit_scan, run_dependency_audit
-│   └── code_tools.py             # extract_functions, search_patterns
+│   └── code_tools.py             # extract_functions, search_patterns, detect_redundant_code, detect_bugs
 │
 ├── reporting/
 │   ├── renderer.py               # Rich terminal renderer (CLI mode)
@@ -516,6 +520,8 @@ Render free tier spins down after inactivity. The first request after sleep take
 
 ### Near-term
 - [x] **Bulletproof schema coercion** — 3-layer defence handles any LLM output inconsistency
+- [x] **Redundant code detection** — unused imports, duplicate definitions, dead code
+- [x] **Bug detection** — mutable defaults, bare excepts, silent swallow, None comparisons, shadowed builtins
 - [ ] **Multi-file PR support** — smarter file prioritization for PRs with 50+ files
 - [ ] **Comment posting** — post review findings directly as GitHub PR comments
 - [ ] **JavaScript/TypeScript SAST** — integrate `eslint` and `semgrep` for non-Python files

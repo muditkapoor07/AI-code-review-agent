@@ -318,17 +318,27 @@ def _strip_problematic_fields(data: dict) -> None:
         for f in data["findings"]:
             if not isinstance(f, dict):
                 continue
-            f.setdefault("id", "F000")
-            f.setdefault("category", "code_quality")
-            f.setdefault("severity", "info")
-            f.setdefault("file", "")
-            f.setdefault("title", "")
-            f.setdefault("description", "")
-            # fix: coerce string → dict
-            if isinstance(f.get("fix"), str):
-                f["fix"] = {"description": f["fix"], "code": ""}
-            elif not isinstance(f.get("fix"), dict):
+            # Use 'or' assignment — setdefault won't overwrite None values
+            for key, default in [("id", "F000"), ("category", "code_quality"),
+                                  ("severity", "info"), ("file", ""),
+                                  ("title", ""), ("description", "")]:
+                if not f.get(key):
+                    f[key] = default
+            # fix: coerce string/None → dict with string fields
+            fix = f.get("fix")
+            if isinstance(fix, str):
+                f["fix"] = {"description": fix, "code": ""}
+            elif isinstance(fix, dict):
+                fix["code"] = fix.get("code") or ""
+                fix["description"] = fix.get("description") or ""
+            else:
                 f["fix"] = {"description": "", "code": ""}
+            # references must be list of strings
+            refs = f.get("references")
+            if not isinstance(refs, list):
+                f["references"] = []
+            else:
+                f["references"] = [str(r) for r in refs if r is not None]
             cleaned.append(f)
         data["findings"] = cleaned
 
@@ -385,7 +395,14 @@ def _result_summary(tool_name: str, result: dict) -> str:
         "run_bandit_scan":   lambda: f"{r.get('total_issues', 0)} issues — HIGH:{r.get('metrics', {}).get('high', 0)} MED:{r.get('metrics', {}).get('medium', 0)}",
         "run_dependency_audit": lambda: f"{r.get('vulnerable_count', 0)} vulnerable packages out of {r.get('total_packages_scanned', 0)}",
         "extract_functions": lambda: f"{r.get('count', 0)} definitions found",
-        "search_patterns":   lambda: f"{r.get('total_matches', 0)} pattern matches across {r.get('patterns_searched', 0)} patterns",
+        "search_patterns":      lambda: f"{r.get('total_matches', 0)} pattern matches across {r.get('patterns_searched', 0)} patterns",
+        "detect_redundant_code":lambda: f"{r.get('issue_count', 0)} redundancy issues — categories: {', '.join(r.get('categories', [])) or 'none'}",
+        "detect_bugs":          lambda: (
+            f"{r.get('bug_count', 0)} bugs — "
+            f"HIGH:{r.get('severity_breakdown', {}).get('high', 0)} "
+            f"MED:{r.get('severity_breakdown', {}).get('medium', 0)} "
+            f"LOW:{r.get('severity_breakdown', {}).get('low', 0)}"
+        ),
     }
     fn = summaries.get(tool_name)
     try:

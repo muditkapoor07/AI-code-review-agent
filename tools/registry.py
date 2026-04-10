@@ -201,6 +201,48 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["source_code", "filename", "patterns"],
         },
     },
+    {
+        "name": "detect_redundant_code",
+        "description": (
+            "Detect redundant and dead code: unused imports, duplicate function/class definitions, "
+            "unreachable statements after return/raise/break/continue, and TODO stubs. "
+            "Always call this during snippet reviews and on key changed files in PRs."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source_code": {"type": "string", "description": "Source code to analyse"},
+                "filename": {"type": "string"},
+                "language": {
+                    "type": "string",
+                    "enum": ["python", "javascript", "typescript", "go", "java", "other"],
+                },
+            },
+            "required": ["source_code", "filename", "language"],
+        },
+    },
+    {
+        "name": "detect_bugs",
+        "description": (
+            "Detect common programming bugs: mutable default arguments, bare except clauses, "
+            "silent exception swallowing, '== None' instead of 'is None', shadowed builtins, "
+            "assert used for runtime validation, identity-vs-equality misuse ('is' with literals). "
+            "For JavaScript/TypeScript: loose null checks, empty catch blocks, eval(), innerHTML, debugger. "
+            "Always call this during snippet reviews."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source_code": {"type": "string"},
+                "filename": {"type": "string"},
+                "language": {
+                    "type": "string",
+                    "enum": ["python", "javascript", "typescript", "go", "java", "other"],
+                },
+            },
+            "required": ["source_code", "filename", "language"],
+        },
+    },
 ]
 
 
@@ -240,6 +282,8 @@ class ToolRegistry:
             "run_dependency_audit": security_tools.run_dependency_audit,
             "extract_functions": code_tools.extract_functions,
             "search_patterns": code_tools.search_patterns,
+            "detect_redundant_code": code_tools.detect_redundant_code,
+            "detect_bugs": code_tools.detect_bugs,
         }
 
     def get_tool_schemas(self) -> list[dict]:
@@ -262,7 +306,8 @@ class ToolRegistry:
 
     # Tools that accept raw source code — cap to avoid Groq hallucinating truncated strings
     _SOURCE_CODE_TOOLS = {"analyze_complexity", "analyze_syntax", "count_code_metrics",
-                          "run_bandit_scan", "extract_functions", "search_patterns"}
+                          "run_bandit_scan", "extract_functions", "search_patterns",
+                          "detect_redundant_code", "detect_bugs"}
     _MAX_SOURCE_CHARS = 6000
 
     def execute(self, name: str, **kwargs: Any) -> dict:

@@ -82,7 +82,12 @@ class FindingFix(BaseModel):
             return {"description": v, "code": ""}
         if isinstance(v, dict):
             return v
-        return {"description": str(v), "code": ""}
+        return {"description": str(v) if v is not None else "", "code": ""}
+
+    @field_validator("description", "code", mode="before")
+    @classmethod
+    def coerce_str(cls, v: Any) -> str:
+        return str(v) if v is not None else ""
 
 
 class ReviewFinding(BaseModel):
