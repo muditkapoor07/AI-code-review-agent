@@ -242,11 +242,20 @@ class CodeReviewAgent:
         json_str = re.sub(r"^```(?:json)?\s*", "", json_str.strip())
         json_str = re.sub(r"\s*```$", "", json_str)
 
+        # Pre-unwrap list wrapper at string level before parsing
+        # Model sometimes outputs [{...}] — strip the outer [ ] so json.loads gives a dict
+        stripped = json_str.strip()
+        if stripped.startswith("["):
+            # Find the first { and the matching last } to extract the inner object
+            inner_match = re.search(r"\{[\s\S]*\}", stripped)
+            if inner_match:
+                json_str = inner_match.group(0)
+
         # ── 2. Parse JSON ───────────────────────────────────────────────
         try:
             data = json.loads(json_str)
         except json.JSONDecodeError:
-            # Try repairing common LLM mistakes: trailing commas, single quotes
+            # Try repairing common LLM mistakes: trailing commas, Python booleans
             repaired = _repair_json(json_str)
             try:
                 data = json.loads(repaired)
@@ -255,7 +264,7 @@ class CodeReviewAgent:
                     f"Failed to parse final_review JSON: {exc}\n\n{json_str[:1000]}"
                 )
 
-        # Unwrap accidental list wrapping — model sometimes outputs [{...}]
+        # Post-parse safety: unwrap any remaining list wrapping
         if isinstance(data, list):
             data = next((item for item in data if isinstance(item, dict)), {})
 
