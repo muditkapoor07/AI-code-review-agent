@@ -195,17 +195,20 @@ class CodeReviewAgent:
         messages.append({
             "role": "user",
             "content": (
-                "STOP. Do not call any more tools. Do not say 'let me proceed'. "
-                "You have all the information needed. "
-                "Output the final review RIGHT NOW as a JSON object wrapped in "
-                "<final_review> and </final_review> tags. "
-                "The JSON must include: pr_url, pr_title, executive_summary, "
-                "passes_completed, tool_usage_log, findings (list), scores "
-                "(code_quality, security, performance, overall each 1-10, "
-                "plus rationale object with keys code_quality/security/performance/overall "
-                "each a 1-sentence explanation of why that score was given), "
-                "verdict (APPROVE/REQUEST_CHANGES/REJECT), blocking_issues. "
-                "Output ONLY the <final_review>...</final_review> block, nothing else."
+                "STOP. Do not call any more tools. Output the final review JSON NOW.\n"
+                "Wrap it in <final_review>...</final_review> tags. Output NOTHING else.\n\n"
+                "STRICT TYPE RULES — violating these will break the parser:\n"
+                "• blocking_issues: LIST OF PLAIN STRINGS only — e.g. [\"SQL injection in login.py\"]. "
+                "NEVER put objects/dicts in this list.\n"
+                "• findings[].category: must be exactly one of: bug, security, performance, code_quality\n"
+                "• findings[].severity: must be exactly one of: critical, high, medium, low, info\n"
+                "• findings[].fix: object with 'description' (string) and 'code' (string) keys\n"
+                "• scores.rationale: object where each value is a plain string sentence\n"
+                "• verdict: exactly APPROVE, REQUEST_CHANGES, or REJECT\n"
+                "• passes_completed: integer\n\n"
+                "Required fields: pr_url, pr_title, executive_summary, passes_completed, "
+                "tool_usage_log (list), findings (list), scores (code_quality/security/"
+                "performance/overall each 1-10, plus rationale object), verdict, blocking_issues."
             ),
         })
         response = self._client.chat.completions.create(
@@ -221,9 +224,9 @@ class CodeReviewAgent:
 
     @staticmethod
     def _parse_final_review(raw_output: str, source_ref: str) -> FinalReview:
+        # ── 1. Extract JSON string ──────────────────────────────────────
         match = re.search(r"<final_review>(.*?)</final_review>", raw_output, re.DOTALL)
         if not match:
-            # Try extracting raw JSON block as fallback
             json_match = re.search(r"\{[\s\S]*\"verdict\"[\s\S]*\}", raw_output)
             if json_match:
                 json_str = json_match.group(0)
@@ -235,25 +238,126 @@ class CodeReviewAgent:
         else:
             json_str = match.group(1).strip()
 
+        # Strip markdown code fences
         json_str = re.sub(r"^```(?:json)?\s*", "", json_str.strip())
         json_str = re.sub(r"\s*```$", "", json_str)
 
+        # ── 2. Parse JSON ───────────────────────────────────────────────
         try:
             data = json.loads(json_str)
-        except json.JSONDecodeError as exc:
-            raise AgentLoopError(f"Failed to parse final_review JSON: {exc}\n\n{json_str[:1000]}")
+        except json.JSONDecodeError:
+            # Try repairing common LLM mistakes: trailing commas, single quotes
+            repaired = _repair_json(json_str)
+            try:
+                data = json.loads(repaired)
+            except json.JSONDecodeError as exc:
+                raise AgentLoopError(
+                    f"Failed to parse final_review JSON: {exc}\n\n{json_str[:1000]}"
+                )
+
+        # Unwrap accidental list wrapping — model sometimes outputs [{...}]
+        if isinstance(data, list):
+            data = next((item for item in data if isinstance(item, dict)), {})
+
+        if not isinstance(data, dict):
+            raise AgentLoopError(f"Expected JSON object, got {type(data).__name__}: {json_str[:500]}")
 
         data.setdefault("pr_url", source_ref)
 
+        # ── 3. Validate with Pydantic (validators handle coercion) ──────
         try:
             return FinalReview.model_validate(data)
         except Exception as exc:
-            raise AgentLoopError(f"Final review schema validation failed: {exc}")
+            # ── 4. Last-resort: strip complex nested fields and retry ───
+            _strip_problematic_fields(data)
+            try:
+                return FinalReview.model_validate(data)
+            except Exception as exc2:
+                raise AgentLoopError(
+                    f"Final review schema validation failed after recovery attempt: {exc2}\n"
+                    f"Original error: {exc}"
+                )
 
 
 # ------------------------------------------------------------------ #
 # Internal helpers                                                     #
 # ------------------------------------------------------------------ #
+
+def _repair_json(s: str) -> str:
+    """Best-effort repair of common LLM JSON mistakes."""
+    # Remove trailing commas before } or ]
+    s = re.sub(r",\s*([}\]])", r"\1", s)
+    # Replace Python-style None/True/False
+    s = s.replace(": None", ": null").replace(":None", ":null")
+    s = s.replace(": True", ": true").replace(":True", ":true")
+    s = s.replace(": False", ": false").replace(":False", ":false")
+    return s
+
+
+def _strip_problematic_fields(data: dict) -> None:
+    """Mutate data in-place: replace fields that commonly fail with safe defaults.
+
+    Called only when the first validation attempt fails — a last-resort path.
+    """
+    # blocking_issues: ensure list of strings
+    if "blocking_issues" in data:
+        raw = data["blocking_issues"]
+        if isinstance(raw, list):
+            data["blocking_issues"] = [
+                item if isinstance(item, str) else
+                (item.get("title") or item.get("description") or str(item))
+                if isinstance(item, dict) else str(item)
+                for item in raw
+            ]
+        else:
+            data["blocking_issues"] = []
+
+    # findings: drop any entry missing required fields
+    if "findings" in data and isinstance(data["findings"], list):
+        cleaned = []
+        for f in data["findings"]:
+            if not isinstance(f, dict):
+                continue
+            f.setdefault("id", "F000")
+            f.setdefault("category", "code_quality")
+            f.setdefault("severity", "info")
+            f.setdefault("file", "")
+            f.setdefault("title", "")
+            f.setdefault("description", "")
+            # fix: coerce string → dict
+            if isinstance(f.get("fix"), str):
+                f["fix"] = {"description": f["fix"], "code": ""}
+            elif not isinstance(f.get("fix"), dict):
+                f["fix"] = {"description": "", "code": ""}
+            cleaned.append(f)
+        data["findings"] = cleaned
+
+    # scores: fill missing keys with defaults
+    scores = data.get("scores")
+    if not isinstance(scores, dict):
+        data["scores"] = {"code_quality": 5, "security": 5, "performance": 5, "overall": 5}
+    else:
+        for key in ("code_quality", "security", "performance", "overall"):
+            if key not in scores:
+                scores[key] = 5
+
+    # tool_usage_log: keep only dicts
+    if "tool_usage_log" in data and isinstance(data["tool_usage_log"], list):
+        data["tool_usage_log"] = [
+            t for t in data["tool_usage_log"] if isinstance(t, dict)
+        ]
+
+    # verdict: normalise
+    v = data.get("verdict", "")
+    if not isinstance(v, str) or v.upper() not in {"APPROVE", "REQUEST_CHANGES", "REJECT"}:
+        data["verdict"] = "REQUEST_CHANGES"
+
+    # passes_completed: int
+    try:
+        data["passes_completed"] = int(data.get("passes_completed", 1))
+    except (ValueError, TypeError):
+        data["passes_completed"] = 1
+
 
 def _sanitize(inputs: dict) -> dict:
     out = {}

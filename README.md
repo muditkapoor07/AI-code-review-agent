@@ -50,6 +50,7 @@ Manual code reviews are time-consuming, inconsistent, and often miss subtle secu
 - **Structured report** — scores (1–10) for Code Quality, Security, Performance, Overall with rationale
 - **Download report** — export as `.pptx` PowerPoint deck or formatted `.txt` file
 - **Multi-model support** — switch between Groq LLaMA 3.3 70B, LLaMA 3.1 70B, LLaMA 3.1 8B, Gemma2
+- **Bulletproof schema coercion** — 3-layer defence normalises any LLM output inconsistency (wrong types, dict-as-string, fuzzy enums, trailing commas) without crashing
 - **Render-ready** — ships with `render.yaml` for one-click cloud deployment
 
 ---
@@ -105,8 +106,9 @@ Manual code reviews are time-consuming, inconsistent, and often miss subtle secu
 4. Groq decides which tools to call; agent executes them and streams events to UI
 5. Each tool result is appended to message history (truncated to stay within token limits)
 6. When Groq returns `stop` or max passes is reached, agent produces `<final_review>` JSON
-7. JSON is validated against Pydantic schema and streamed to browser as a `complete` event
-8. UI renders the report; user can download as `.pptx` or `.txt`
+7. JSON is repaired (`_repair_json`) then validated against Pydantic schema; coercion validators normalise any LLM type mismatches; a last-resort `_strip_problematic_fields` pass retries on any remaining failure
+8. Validated review is streamed to browser as a `complete` event
+9. UI renders the report; user can download as `.pptx` or `.txt`
 
 ---
 
@@ -281,7 +283,9 @@ AI-code-review-agent/
 
 ### Key files explained
 
-**`agent/core.py`** — The brain. Implements the `THINK → ACT → OBSERVE → REPEAT` loop using Groq's tool-use API. Handles message history trimming, error recovery, and forced final-answer synthesis.
+**`agent/core.py`** — The brain. Implements the `THINK → ACT → OBSERVE → REPEAT` loop using Groq's tool-use API. Handles message history trimming, error recovery, forced final-answer synthesis, JSON repair (`_repair_json`), and the last-resort `_strip_problematic_fields` normalisation pass.
+
+**`agent/schemas.py`** — Pydantic v2 models with coercion validators on every field. Each validator is designed to accept the widest possible LLM output (fuzzy enum matching, dict→string coercion, string→int clamping, etc.) so schema validation never crashes regardless of model inconsistencies.
 
 **`tools/registry.py`** — Maps tool names to Python callables and generates the OpenAI-format JSON schemas passed to Groq. Sanitizes oversized `source_code` arguments to prevent token overflow.
 
@@ -492,6 +496,14 @@ The model timed out or hit max passes without synthesizing. Try:
 - Use `llama-3.3-70b-versatile` (more instruction-following than 8B)
 - Try a smaller PR with fewer changed files
 
+### `Final review schema validation failed`
+The agent self-heals most output inconsistencies automatically via a 3-layer recovery system:
+1. **Field coercion** — every Pydantic field validator normalises wrong types (dicts-as-strings, fuzzy enums, clamped ints, etc.)
+2. **JSON repair** — trailing commas and Python `None/True/False` are fixed before parsing
+3. **Last-resort strip** — `_strip_problematic_fields` rewrites complex nested fields to safe defaults before a second validation attempt
+
+If you still see this error, the model produced output too malformed to recover. Switch to `llama-3.3-70b-versatile` which is the most schema-compliant model.
+
 ### `mixtral-8x7b-32768 has been decommissioned`
 This model was deprecated by Groq. Use `llama-3.3-70b-versatile` or `gemma2-9b-it` instead.
 
@@ -503,6 +515,7 @@ Render free tier spins down after inactivity. The first request after sleep take
 ## 🗺 Roadmap
 
 ### Near-term
+- [x] **Bulletproof schema coercion** — 3-layer defence handles any LLM output inconsistency
 - [ ] **Multi-file PR support** — smarter file prioritization for PRs with 50+ files
 - [ ] **Comment posting** — post review findings directly as GitHub PR comments
 - [ ] **JavaScript/TypeScript SAST** — integrate `eslint` and `semgrep` for non-Python files
