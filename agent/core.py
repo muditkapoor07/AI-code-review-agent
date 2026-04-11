@@ -202,30 +202,25 @@ class CodeReviewAgent:
         messages.append({
             "role": "user",
             "content": (
-                "Output the final review JSON now inside <final_review>...</final_review> tags.\n"
-                "Output NOTHING outside those tags.\n\n"
-                "JSON schema (all fields required):\n"
-                '{"pr_url":"string","pr_title":"string","executive_summary":"string",'
+                "Output the final review JSON inside <final_review>...</final_review> tags. "
+                "Output NOTHING else — no text before or after the tags.\n\n"
+                "IMPORTANT: Do NOT include a 'tool_usage_log' field — it is handled separately.\n\n"
+                "Required JSON (keep it concise — max 5 findings):\n"
+                '{"pr_url":"","pr_title":"","executive_summary":"1-2 sentences",'
                 '"passes_completed":1,'
                 '"findings":[{"id":"F001","category":"bug|security|performance|code_quality",'
-                '"severity":"critical|high|medium|low|info","file":"string",'
-                '"title":"string","description":"string",'
-                '"fix":{"description":"string","code":"string"},"references":[]}],'
-                '"scores":{"code_quality":1,"security":1,"performance":1,"overall":1,'
-                '"rationale":{"code_quality":"string","security":"string",'
-                '"performance":"string","overall":"string"}},'
+                '"severity":"critical|high|medium|low|info","file":"","title":"",'
+                '"description":"","fix":{"description":"","code":""},"references":[]}],'
+                '"scores":{"code_quality":5,"security":5,"performance":5,"overall":5,'
+                '"rationale":{"code_quality":"","security":"","performance":"","overall":""}},'
                 '"verdict":"APPROVE|REQUEST_CHANGES|REJECT",'
-                '"blocking_issues":["plain string only — no objects"]}\n\n'
-                "Rules: blocking_issues = plain strings only. "
-                "severity = critical/high/medium/low/info exactly. "
-                "category = bug/security/performance/code_quality exactly. "
-                "fix.code and fix.description must be strings not null."
+                '"blocking_issues":["plain strings only"]}'
             ),
         })
         response = self._client.chat.completions.create(
             model=self._model,
             max_tokens=_MAX_TOKENS_FINAL,
-            messages=messages[-_MAX_HISTORY_MESSAGES:],  # trim here too
+            messages=messages[-_MAX_HISTORY_MESSAGES:],
         )
         return response.choices[0].message.content or ""
 
@@ -420,7 +415,13 @@ def _repair_json(s: str) -> str:
 
 
 def _complete_truncated_json(s: str) -> str:
-    """Close a JSON string that was cut off mid-output."""
+    """Close a JSON string that was cut off mid-output.
+
+    Handles three truncation cases:
+    - Mid-string value:  ..."description":"incompl  → closes the string
+    - Mid-key:           ...,"category":"v","incompl → removes dangling key, closes
+    - Mid-comma:         ...,"category":"value",     → removes trailing comma, closes
+    """
     in_string = False
     escape_next = False
     stack: list[str] = []
@@ -444,12 +445,24 @@ def _complete_truncated_json(s: str) -> str:
         elif ch == ']' and stack and stack[-1] == '[':
             stack.pop()
 
-    suffix = '"' if in_string else ""
-    trimmed = re.sub(r",\s*$", "", (s + suffix).rstrip())
-    for opener in reversed(stack):
-        trimmed += '}' if opener == '{' else ']'
+    # If truncated mid-string, close it
+    result = (s + '"') if in_string else s
 
-    return trimmed
+    # Remove trailing comma
+    result = re.sub(r",\s*$", "", result.rstrip())
+
+    # Remove dangling key with no value: ends with ,"some_key" before close
+    # e.g. ...,"category":"v","dangling_key" → remove ,"dangling_key"
+    result = re.sub(r',\s*"[^"\\]*"\s*$', "", result)
+
+    # Remove trailing comma again (in case removing the dangling key left one)
+    result = re.sub(r",\s*$", "", result.rstrip())
+
+    # Close all open structures
+    for opener in reversed(stack):
+        result += '}' if opener == '{' else ']'
+
+    return result
 
 
 def _strip_problematic_fields(data: dict) -> None:
