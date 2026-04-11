@@ -23,7 +23,7 @@ Start with `fetch_pr_metadata` and `fetch_pr_diff` now.
 """
 
 SNIPPET_USER_MESSAGE = """\
-Review this code snippet:
+Review this code snippet ({total_lines} lines total):
 
 Filename: {filename}
 Language: {language}
@@ -31,6 +31,8 @@ Language: {language}
 ```{language}
 {code}
 ```
+
+Note: All analysis tools receive the COMPLETE source automatically — do not worry about any truncation note in the code above.
 
 Run these tools: `analyze_syntax`, `analyze_complexity`, `run_bandit_scan`, `extract_functions`, `detect_redundant_code`, `detect_bugs`, `search_patterns`. Then output your final review.
 """

@@ -257,6 +257,10 @@ def _github_unavailable(*args, **kwargs) -> dict:
 class ToolRegistry:
     def __init__(self, github_client: GitHubClient | None) -> None:
         self._gh = github_client
+        # Snippet mode: store full code so tools always get it regardless of
+        # what the LLM passes as the source_code argument
+        self._snippet_code: str | None = None
+        self._snippet_filename: str | None = None
 
         if github_client is not None:
             gh_tools: dict[str, Callable[..., dict]] = {
@@ -285,6 +289,11 @@ class ToolRegistry:
             "detect_redundant_code": code_tools.detect_redundant_code,
             "detect_bugs": code_tools.detect_bugs,
         }
+
+    def set_snippet(self, code: str, filename: str) -> None:
+        """Register the full snippet code so all analysis tools use it directly."""
+        self._snippet_code = code
+        self._snippet_filename = filename
 
     def get_tool_schemas(self) -> list[dict]:
         """Anthropic-format schemas (kept for reference)."""
@@ -318,6 +327,13 @@ class ToolRegistry:
                 "error": f"Unknown tool: {name!r}",
                 "result": {},
             }
+
+        # In snippet mode, always inject the stored full code so tools get the
+        # real source regardless of what (possibly truncated) code the LLM passed
+        if name in self._SOURCE_CODE_TOOLS and self._snippet_code is not None:
+            kwargs["source_code"] = self._snippet_code
+            if self._snippet_filename and "filename" in kwargs:
+                kwargs["filename"] = self._snippet_filename
 
         # Truncate oversized source_code to prevent malformed JSON from model
         if name in self._SOURCE_CODE_TOOLS and "source_code" in kwargs:

@@ -24,6 +24,12 @@ _MAX_TOOL_RESULT_CHARS = 1500
 _MAX_HISTORY_MESSAGES = 12
 _GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
+# Code snippet preview limits — large code is shown truncated in the user
+# message (to stay within TPM), but tools always receive the full code
+# via ToolRegistry.set_snippet() regardless of size.
+_MAX_SNIPPET_PREVIEW_LINES = 120   # lines shown to LLM in the user message
+_MAX_SNIPPET_PREVIEW_CHARS = 4000  # char cap on the preview
+
 
 class AgentLoopError(Exception):
     pass
@@ -67,10 +73,35 @@ class CodeReviewAgent:
         return self._parse_final_review(raw_output, pr_url, tool_log, pass_count)
 
     def run_snippet(self, code: str, language: str, filename: str) -> FinalReview:
-        self._emit({"type": "status", "message": f"Reviewing {filename} ({language})"})
+        total_lines = code.count("\n") + 1
+        total_chars = len(code)
+        self._emit({
+            "type": "status",
+            "message": f"Reviewing {filename} ({language}) — {total_lines} lines, {total_chars:,} chars",
+        })
+
+        # Register the FULL code with the tool registry — tools will always
+        # receive the complete source regardless of what preview the LLM sees.
+        self._registry.set_snippet(code, filename)
+
+        # Build a preview for the LLM context (keeps user message within TPM limits)
+        lines = code.splitlines()
+        if total_lines > _MAX_SNIPPET_PREVIEW_LINES or total_chars > _MAX_SNIPPET_PREVIEW_CHARS:
+            preview = "\n".join(lines[:_MAX_SNIPPET_PREVIEW_LINES])
+            if len(preview) > _MAX_SNIPPET_PREVIEW_CHARS:
+                preview = preview[:_MAX_SNIPPET_PREVIEW_CHARS]
+            hidden = total_lines - _MAX_SNIPPET_PREVIEW_LINES
+            display_code = (
+                preview
+                + f"\n# ... [{hidden} more lines hidden from context — "
+                "full code is automatically passed to all analysis tools]"
+            )
+        else:
+            display_code = code
 
         initial_message = SNIPPET_USER_MESSAGE.format(
-            filename=filename, language=language, code=code,
+            filename=filename, language=language, code=display_code,
+            total_lines=total_lines,
         )
         messages: list[dict] = [
             {"role": "system", "content": SYSTEM_PROMPT},

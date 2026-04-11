@@ -760,7 +760,11 @@
                 <input type="text" id="filename" value="snippet.py" />
               </div>
             </div>
-            <textarea id="codeInput" placeholder="Paste your code here…"></textarea>
+            <textarea id="codeInput" placeholder="Paste your code here…" oninput="updateCodeCounter()"></textarea>
+            <div id="codeCounter" style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:11px;color:var(--text3);">
+              <span id="codeCounterText">0 lines · 0 chars</span>
+              <span id="codeSizeWarning" style="color:#f59e0b;display:none;">Large file — LLM sees first 120 lines; all tools get full code</span>
+            </div>
           </div>
         </div>
 
@@ -893,6 +897,16 @@ function updateFilename() {
 function toggleAdv() {
   document.getElementById('advToggle').classList.toggle('open');
   document.getElementById('advPanel').classList.toggle('open');
+}
+
+function updateCodeCounter() {
+  const val = document.getElementById('codeInput').value;
+  const lines = val === '' ? 0 : val.split('\n').length;
+  const chars = val.length;
+  document.getElementById('codeCounterText').textContent =
+    lines.toLocaleString() + ' lines · ' + chars.toLocaleString() + ' chars';
+  const warn = document.getElementById('codeSizeWarning');
+  if (warn) warn.style.display = (lines > 120 || chars > 4000) ? 'inline' : 'none';
 }
 
 /* ── Start / Stop ──────────────────────────────────────── */
