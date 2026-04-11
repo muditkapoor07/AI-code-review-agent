@@ -48,6 +48,9 @@ Manual code reviews are time-consuming, inconsistent, and often miss subtle secu
 - **Pattern search engine** — regex hunts for `eval()`, `shell=True`, SQL concatenation, debug artifacts
 - **Redundant code detection** — unused imports, duplicate definitions, dead code after `return`/`raise`/`break`
 - **Bug detection** — mutable defaults, bare excepts, silent exception swallowing, `== None`, shadowed builtins, `is` with literals; JS: loose null checks, `eval()`, `innerHTML`, `debugger`
+- **Unlimited code size** — paste files of any length; LLM sees a 120-line preview while all analysis tools always receive the full source via an internal code store (no truncation in analysis)
+- **Live code counter** — textarea shows real-time line/char count and warns when snippet exceeds the LLM preview threshold
+- **Fix suggestions** — every finding includes a plain-English fix description and corrected code snippet
 - **Real-time streaming UI** — live activity feed shows every tool call as it happens
 - **Structured report** — scores (1–10) for Code Quality, Security, Performance, Overall with rationale
 - **Download report** — export as `.pptx` PowerPoint deck or formatted `.txt` file
@@ -216,10 +219,12 @@ https://github.com/{owner}/{repo}/pull/{number}
 1. Select **Code Snippet** mode
 2. Choose language (Python, JavaScript, TypeScript, Go, Java, etc.)
 3. Set a filename (e.g. `auth.py`)
-4. Paste your code
+4. Paste your code — **any length**; a live counter shows lines and chars
 5. Click **Start Review**
 
 > No GitHub token required for snippet reviews.
+>
+> **Large files:** The LLM sees a preview of the first 120 lines in its context window, but every analysis tool (`bandit`, `radon`, `detect_bugs`, etc.) always receives the **complete source** via an internal code store — so nothing is skipped regardless of file size. An amber warning appears in the UI when the snippet exceeds the preview threshold.
 
 ### Advanced settings
 
@@ -298,7 +303,7 @@ AI-code-review-agent/
 
 **`agent/schemas.py`** — Pydantic v2 models with coercion validators on every field. Each validator is designed to accept the widest possible LLM output (fuzzy enum matching, dict→string coercion, string→int clamping, etc.) so schema validation never crashes regardless of model inconsistencies.
 
-**`tools/registry.py`** — Maps tool names to Python callables and generates the OpenAI-format JSON schemas passed to Groq. Sanitizes oversized `source_code` arguments to prevent token overflow.
+**`tools/registry.py`** — Maps tool names to Python callables and generates the OpenAI-format JSON schemas passed to Groq. Stores the full snippet source via `set_snippet()` and injects it into every tool call — bypassing whatever (possibly truncated) `source_code` the LLM passes — so tools always analyse the complete file.
 
 **`app.py`** — FastAPI server with SSE streaming. Runs the agent in a background thread and forwards events to the browser via a queue. Keepalive pings prevent connection drops on long-running reviews.
 
@@ -341,6 +346,7 @@ Groq free tier limits: 100K tokens/day, 12K tokens/minute (70B model). The agent
 - Capping tool results at **1,500 characters** in message history
 - Keeping only the last **12 messages** in context (sliding window)
 - Truncating file content to **80 lines** and diffs to **50 lines**
+- **Snippet preview cap** — LLM sees first **120 lines / 4,000 chars** of pasted code; full source is stored internally and injected into every tool call
 - Using a compact system prompt (~150 tokens)
 - **Tracking tool log internally** — LLM never wastes tokens reproducing it in the final JSON
 - Separate token budgets: **2,048** tokens for investigation turns, **4,096** for final JSON generation
@@ -537,6 +543,9 @@ Render free tier spins down after inactivity. The first request after sleep take
 - [x] **Self-tracked tool log** — eliminates #1 source of JSON truncation (LLM no longer wastes tokens reproducing it)
 - [x] **Redundant code detection** — unused imports, duplicate definitions, dead code
 - [x] **Bug detection** — mutable defaults, bare excepts, silent swallow, None comparisons, shadowed builtins
+- [x] **Unlimited snippet size** — internal code store ensures tools always analyse complete source; LLM preview capped to prevent token overflow
+- [x] **Live code counter** — real-time line/char count with threshold warning in UI
+- [x] **Fix suggestions** — every finding includes a plain-English fix description and corrected code snippet
 - [ ] **Multi-file PR support** — smarter file prioritization for PRs with 50+ files
 - [ ] **Comment posting** — post review findings directly as GitHub PR comments
 - [ ] **JavaScript/TypeScript SAST** — integrate `eslint` and `semgrep` for non-Python files
