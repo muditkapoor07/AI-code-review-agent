@@ -235,8 +235,9 @@ class CodeReviewAgent:
             "content": (
                 "Output ONLY this JSON inside <final_review>...</final_review> tags. "
                 "No other text. Do NOT include tool_usage_log. Keep findings to max 5. "
-                "category MUST be one of: bug|security|performance|code_quality (use underscore, not space). "
-                "severity MUST be one of: critical|high|medium|low|info.\n\n"
+                "category MUST be one of: bug|security|performance|code_quality (underscore). "
+                "severity MUST be one of: critical|high|medium|low|info. "
+                "blocking_issues MUST always be [] (empty array).\n\n"
                 '<final_review>{"pr_url":"","pr_title":"","executive_summary":"1-2 sentences",'
                 '"findings":[{"id":"F001","category":"code_quality","severity":"info","file":"",'
                 '"title":"","description":"","fix":{"description":"","code":""},"references":[]}],'
@@ -284,36 +285,41 @@ class CodeReviewAgent:
         if not isinstance(data, dict):
             data = {}
 
-        # Use explicit key checks (never setdefault on potentially non-dict)
         if not data.get("pr_url"):      data["pr_url"] = source_ref
         if not data.get("pr_title"):    data["pr_title"] = ""
         if not data.get("executive_summary"): data["executive_summary"] = "Review completed."
         data["passes_completed"] = pass_count
-        # Always use our own tool log — never trust LLM output
-        data["tool_usage_log"] = tool_log
+        data["tool_usage_log"] = tool_log  # always inject ours, not LLM's
         if "findings" not in data:      data["findings"] = []
         if "scores" not in data:        data["scores"] = {}
         if not data.get("verdict"):     data["verdict"] = "REQUEST_CHANGES"
-        if "blocking_issues" not in data: data["blocking_issues"] = []
+        # ALWAYS discard LLM-produced blocking_issues — it's the #1 crash source
+        # We recompute it from validated findings after model_validate
+        data["blocking_issues"] = []
 
         # ── Step 5: normalise and coerce ────────────────────────────────
         _strip_problematic_fields(data)
 
-        # ── Step 6: Pydantic validate (validators handle remaining coercion)
-        try:
-            return FinalReview.model_validate(data)
-        except Exception:
-            # Absolute last resort — strip findings entirely and return minimal report
-            data["findings"] = []
-            data["blocking_issues"] = []
-            data["scores"] = {"code_quality": 5, "security": 5,
-                              "performance": 5, "overall": 5, "rationale": {}}
+        # ── Step 6: Pydantic validate, then compute blocking_issues ourselves ─
+        for attempt in range(2):
             try:
-                return FinalReview.model_validate(data)
-            except Exception as exc2:
-                raise AgentLoopError(
-                    f"Could not build a valid review even with fallback: {exc2}"
-                )
+                review = FinalReview.model_validate(data)
+                # Derive blocking_issues from validated finding objects (guaranteed correct types)
+                review.blocking_issues = [
+                    f"{f.severity.value.upper()} — {f.title}"
+                    + (f" in {f.file}" if f.file else "")
+                    for f in review.findings
+                    if f.severity.value in ("critical", "high")
+                ]
+                return review
+            except Exception:
+                if attempt == 0:
+                    # Strip findings on second attempt — they may be malformed
+                    data["findings"] = []
+                    data["scores"] = {"code_quality": 5, "security": 5,
+                                      "performance": 5, "overall": 5, "rationale": {}}
+                else:
+                    raise AgentLoopError("Could not build a valid review even with stripped findings")
 
 
 # ------------------------------------------------------------------ #
