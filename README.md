@@ -55,8 +55,9 @@ Manual code reviews are time-consuming, inconsistent, and often miss subtle secu
 - **Structured report** — scores (1–10) for Code Quality, Security, Performance, Overall with rationale
 - **Download report** — export as `.pptx` PowerPoint deck or formatted `.txt` file
 - **Multi-model support** — switch between Groq LLaMA 3.3 70B, LLaMA 3.1 70B, LLaMA 3.1 8B, Gemma2
-- **Bulletproof output pipeline** — 5-stage recovery: extract → repair → complete-truncated-JSON → nuclear regex fallback → absolute minimal report; never crashes regardless of LLM output
+- **Bulletproof output pipeline** — 6-stage recovery: strip-tool-log → bracket-count extract → repair → complete-truncated-JSON → nuclear regex fallback → stripped minimal report; never crashes regardless of LLM output
 - **Self-tracked tool log** — agent tracks tool calls internally, never asks LLM to reproduce them (eliminates the #1 cause of token overflow and JSON truncation)
+- **Derived blocking issues** — blocking_issues are computed from validated findings after Pydantic validation, never parsed from LLM output (eliminates the #1 schema crash source)
 - **Render-ready** — ships with `render.yaml` for one-click cloud deployment
 
 ---
@@ -114,13 +115,15 @@ Manual code reviews are time-consuming, inconsistent, and often miss subtle secu
 4. Groq decides which tools to call; agent executes them, streams events to UI, and **tracks the tool log internally**
 5. Each tool result is appended to message history (truncated to stay within token limits, sliding window of 12)
 6. When Groq returns `stop` or max passes is reached, agent produces `<final_review>` JSON
-7. **5-stage recovery pipeline** processes the raw output:
-   - Stage 1: extract JSON from tags, strip fences, unwrap `[{...}]` list wrappers
+7. **6-stage recovery pipeline** processes the raw output:
+   - Stage 0: `_strip_tool_usage_log` removes the tool log from raw output to cut JSON size before parsing
+   - Stage 1: bracket-counting `_extract_first_object` safely unwraps `[{...}]` list wrappers; strips markdown fences
    - Stage 2: direct parse → repair trailing commas/Python booleans → complete truncated JSON
    - Stage 3: **nuclear regex extraction** — pulls individual fields from raw text if JSON is still unparseable
-   - Stage 4: `_strip_problematic_fields` normalises all field types to safe defaults
+   - Stage 4: `_strip_problematic_fields` normalises all field types including fuzzy enum coercion (`"code quality"` → `"code_quality"`)
    - Stage 5: absolute fallback — strips findings and returns minimal valid report rather than crashing
 8. Agent's own tool log is injected into the result (overrides any LLM-generated version)
+9. **`blocking_issues` is computed from validated findings** — never parsed from LLM output, so it can never contain dicts or invalid types
 9. Validated review is streamed to browser as a `complete` event
 10. UI renders the report; user can download as `.pptx` or `.txt`
 
@@ -516,17 +519,18 @@ The model timed out or hit max passes without synthesizing. Try:
 - Try a smaller PR with fewer changed files
 
 ### `Final review schema validation failed` or JSON parse errors
-The agent now has a **5-stage recovery pipeline** that handles every known failure mode:
+The agent has a **6-stage recovery pipeline** that handles every known failure mode:
 
 | Stage | What it fixes |
 |---|---|
-| Extract | `<final_review>` tags, markdown fences, list-wrapped `[{...}]` JSON |
+| Strip tool log | Removes `tool_usage_log` from raw output before parsing — prevents JSON truncation |
+| Extract | Bracket-counting unwrap of `[{...}]` list wrappers; `<final_review>` tags; markdown fences |
 | Repair | Trailing commas, Python `None/True/False` literals |
 | Complete | Truncated JSON cut off mid-output due to token limit |
 | Nuclear | Regex extracts `pr_title`, `verdict`, `scores`, `findings` from raw text if JSON is still broken |
 | Fallback | Returns a minimal valid report with empty findings rather than crashing |
 
-This error should **never appear** in normal operation. If it does, it means Groq returned a completely blank response — check rate limits and try again.
+`blocking_issues` is **never parsed from LLM output** — it is computed from already-validated findings after Pydantic validation succeeds. This eliminates the most common schema crash entirely.
 
 ### `mixtral-8x7b-32768 has been decommissioned`
 This model was deprecated by Groq. Use `llama-3.3-70b-versatile` or `gemma2-9b-it` instead.
