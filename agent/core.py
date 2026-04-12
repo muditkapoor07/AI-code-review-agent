@@ -233,19 +233,16 @@ class CodeReviewAgent:
         messages.append({
             "role": "user",
             "content": (
-                "Output the final review JSON inside <final_review>...</final_review> tags. "
-                "Output NOTHING else — no text before or after the tags.\n\n"
-                "IMPORTANT: Do NOT include a 'tool_usage_log' field — it is handled separately.\n\n"
-                "Required JSON (keep it concise — max 5 findings):\n"
-                '{"pr_url":"","pr_title":"","executive_summary":"1-2 sentences",'
-                '"passes_completed":1,'
-                '"findings":[{"id":"F001","category":"bug|security|performance|code_quality",'
-                '"severity":"critical|high|medium|low|info","file":"","title":"",'
-                '"description":"","fix":{"description":"","code":""},"references":[]}],'
+                "Output ONLY this JSON inside <final_review>...</final_review> tags. "
+                "No other text. Do NOT include tool_usage_log. Keep findings to max 5. "
+                "category MUST be one of: bug|security|performance|code_quality (use underscore, not space). "
+                "severity MUST be one of: critical|high|medium|low|info.\n\n"
+                '<final_review>{"pr_url":"","pr_title":"","executive_summary":"1-2 sentences",'
+                '"findings":[{"id":"F001","category":"code_quality","severity":"info","file":"",'
+                '"title":"","description":"","fix":{"description":"","code":""},"references":[]}],'
                 '"scores":{"code_quality":5,"security":5,"performance":5,"overall":5,'
                 '"rationale":{"code_quality":"","security":"","performance":"","overall":""}},'
-                '"verdict":"APPROVE|REQUEST_CHANGES|REJECT",'
-                '"blocking_issues":["plain strings only"]}'
+                '"verdict":"APPROVE","blocking_issues":[]}</final_review>'
             ),
         })
         response = self._client.chat.completions.create(
@@ -267,30 +264,37 @@ class CodeReviewAgent:
         pass_count: int,
     ) -> FinalReview:
 
+        # ── Step 0: strip tool_usage_log to cut JSON size before parsing ─
+        stripped_raw = _strip_tool_usage_log(raw_output)
+
         # ── Step 1: extract the JSON string ────────────────────────────
-        json_str = _extract_json_str(raw_output)
+        json_str = _extract_json_str(stripped_raw)
 
         # ── Step 2: parse with progressive recovery ─────────────────────
         data = _parse_with_recovery(json_str)
 
         # ── Step 3: if we still have nothing, nuclear regex extraction ──
         if data is None:
-            data = _nuclear_extract(raw_output)
+            data = _nuclear_extract(raw_output)  # use original for more context
 
         # ── Step 4: fill mandatory fields from our own tracking ─────────
+        # Coerce to dict — handle list-wrapped dicts and any other type
+        if isinstance(data, list):
+            data = next((item for item in data if isinstance(item, dict)), {})
         if not isinstance(data, dict):
             data = {}
 
-        data.setdefault("pr_url", source_ref)
-        data.setdefault("pr_title", "")
-        data.setdefault("executive_summary", "Review completed.")
+        # Use explicit key checks (never setdefault on potentially non-dict)
+        if not data.get("pr_url"):      data["pr_url"] = source_ref
+        if not data.get("pr_title"):    data["pr_title"] = ""
+        if not data.get("executive_summary"): data["executive_summary"] = "Review completed."
         data["passes_completed"] = pass_count
-        # Always use our own tool log — more reliable than LLM output
+        # Always use our own tool log — never trust LLM output
         data["tool_usage_log"] = tool_log
-        data.setdefault("findings", [])
-        data.setdefault("scores", {})
-        data.setdefault("verdict", "REQUEST_CHANGES")
-        data.setdefault("blocking_issues", [])
+        if "findings" not in data:      data["findings"] = []
+        if "scores" not in data:        data["scores"] = {}
+        if not data.get("verdict"):     data["verdict"] = "REQUEST_CHANGES"
+        if "blocking_issues" not in data: data["blocking_issues"] = []
 
         # ── Step 5: normalise and coerce ────────────────────────────────
         _strip_problematic_fields(data)
@@ -298,7 +302,7 @@ class CodeReviewAgent:
         # ── Step 6: Pydantic validate (validators handle remaining coercion)
         try:
             return FinalReview.model_validate(data)
-        except Exception as exc:
+        except Exception:
             # Absolute last resort — strip findings entirely and return minimal report
             data["findings"] = []
             data["blocking_issues"] = []
@@ -316,6 +320,35 @@ class CodeReviewAgent:
 # JSON extraction & repair helpers                                    #
 # ------------------------------------------------------------------ #
 
+def _extract_first_object(s: str) -> str | None:
+    """Extract the first complete JSON object from s using bracket counting."""
+    depth = 0
+    in_str = False
+    esc = False
+    start = None
+    for i, ch in enumerate(s):
+        if esc:
+            esc = False
+            continue
+        if ch == "\\" and in_str:
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}" and depth > 0:
+            depth -= 1
+            if depth == 0 and start is not None:
+                return s[start : i + 1]
+    return None
+
+
 def _extract_json_str(raw: str) -> str:
     """Extract the JSON string from raw LLM output."""
     # Try <final_review> tags first
@@ -323,48 +356,57 @@ def _extract_json_str(raw: str) -> str:
     if match:
         json_str = match.group(1).strip()
     else:
-        # Fallback: find the largest {...} block containing "verdict"
-        json_match = re.search(r"\{[\s\S]*\"verdict\"[\s\S]*\}", raw)
+        # Fallback: find {…} block containing "verdict"; if not found, take any {…}
+        json_match = (
+            re.search(r"\{[\s\S]*\"verdict\"[\s\S]*\}", raw)
+            or re.search(r"\{[\s\S]+\}", raw)
+        )
         json_str = json_match.group(0) if json_match else raw.strip()
 
     # Strip markdown fences
     json_str = re.sub(r"^```(?:json)?\s*", "", json_str.strip())
     json_str = re.sub(r"\s*```$", "", json_str)
 
-    # Unwrap list wrapper at string level: [{...}] → {...}
+    # Unwrap list wrapper [{…}] → first {…} using bracket counting (not greedy regex)
     stripped = json_str.strip()
     if stripped.startswith("["):
-        inner = re.search(r"\{[\s\S]*\}", stripped)
-        if inner:
-            json_str = inner.group(0)
+        extracted = _extract_first_object(stripped)
+        if extracted:
+            json_str = extracted
 
     return json_str
+
+
+def _coerce_to_dict(data: Any) -> dict | None:
+    """Safely coerce parsed JSON data to a dict, handling list wrappers."""
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, list):
+        return next((item for item in data if isinstance(item, dict)), None)
+    return None
 
 
 def _parse_with_recovery(json_str: str) -> dict | None:
     """Try to parse JSON with up to 3 recovery attempts. Returns dict or None."""
     # Attempt 1: direct parse
     try:
-        data = json.loads(json_str)
-        return data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else None
-    except json.JSONDecodeError:
+        return _coerce_to_dict(json.loads(json_str))
+    except (json.JSONDecodeError, Exception):
         pass
 
     # Attempt 2: repair common mistakes
     repaired = _repair_json(json_str)
     try:
-        data = json.loads(repaired)
-        return data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else None
-    except json.JSONDecodeError:
+        return _coerce_to_dict(json.loads(repaired))
+    except (json.JSONDecodeError, Exception):
         pass
 
     # Attempt 3: complete truncated JSON then repair again
     completed = _complete_truncated_json(repaired)
     completed = _repair_json(completed)
     try:
-        data = json.loads(completed)
-        return data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else None
-    except json.JSONDecodeError:
+        return _coerce_to_dict(json.loads(completed))
+    except (json.JSONDecodeError, Exception):
         pass
 
     return None
@@ -496,6 +538,76 @@ def _complete_truncated_json(s: str) -> str:
     return result
 
 
+def _strip_tool_usage_log(raw: str) -> str:
+    """Remove tool_usage_log array from raw output using bracket counting.
+    This shrinks the JSON before parsing so truncation is less likely.
+    """
+    key = '"tool_usage_log"'
+    idx = raw.find(key)
+    if idx == -1:
+        return raw
+    colon = raw.find(":", idx + len(key))
+    if colon == -1:
+        return raw
+    start = colon + 1
+    while start < len(raw) and raw[start] in " \t\n\r":
+        start += 1
+    if start >= len(raw) or raw[start] != "[":
+        return raw
+    # Bracket-count to find the closing ]
+    depth = 0
+    in_str = False
+    esc = False
+    end = -1
+    for i in range(start, len(raw)):
+        ch = raw[i]
+        if esc:
+            esc = False
+            continue
+        if ch == "\\" and in_str:
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    if end == -1:
+        return raw  # truncated inside tool_usage_log — leave as-is
+    # Splice out: ,?"tool_usage_log":[...]
+    pre = raw[:idx].rstrip()
+    trailing_comma = pre.endswith(",")
+    if trailing_comma:
+        pre = pre[:-1].rstrip()
+    post = raw[end + 1:].lstrip()
+    if post.startswith(","):
+        post = post[1:].lstrip()
+    separator = "," if (pre and not pre.endswith("{") and post and not post.startswith("}")) else ""
+    return pre + separator + post
+
+
+_VALID_CATEGORIES = {"bug", "security", "performance", "code_quality"}
+_VALID_SEVERITIES = {"critical", "high", "medium", "low", "info"}
+
+
+def _normalize_enum(value: Any, valid: set[str], fallback: str) -> str:
+    """Normalize a string to a valid enum value with fuzzy matching."""
+    s = str(value).lower().strip().replace(" ", "_").replace("-", "_")
+    if s in valid:
+        return s
+    for v in valid:
+        if v in s or s in v:
+            return v
+    return fallback
+
+
 def _strip_problematic_fields(data: dict) -> None:
     """Normalise all fields in-place to safe types."""
     # blocking_issues: must be list of plain strings
@@ -516,11 +628,13 @@ def _strip_problematic_fields(data: dict) -> None:
         for i, f in enumerate(data["findings"]):
             if not isinstance(f, dict):
                 continue
-            for key, default in [("id", f"F{i+1:03d}"), ("category", "code_quality"),
-                                  ("severity", "info"), ("file", ""),
+            for key, default in [("id", f"F{i+1:03d}"), ("file", ""),
                                   ("title", ""), ("description", "")]:
                 if not f.get(key):
                     f[key] = default
+            # Always normalize enum fields — Pydantic coercion is backup only
+            f["category"] = _normalize_enum(f.get("category", ""), _VALID_CATEGORIES, "code_quality")
+            f["severity"]  = _normalize_enum(f.get("severity", ""),  _VALID_SEVERITIES,  "info")
             fix = f.get("fix")
             if isinstance(fix, str):
                 f["fix"] = {"description": fix, "code": ""}
