@@ -283,18 +283,3 @@ class FinalReview(BaseModel):
             return {}
         return v
 
-    # ---------------------------------------------------------------- #
-    # Computed properties                                               #
-    # ---------------------------------------------------------------- #
-
-    @property
-    def critical_findings(self) -> list[ReviewFinding]:
-        return [f for f in self.findings if f.severity == Severity.CRITICAL]
-
-    @property
-    def high_findings(self) -> list[ReviewFinding]:
-        return [f for f in self.findings if f.severity == Severity.HIGH]
-
-    @property
-    def security_findings(self) -> list[ReviewFinding]:
-        return [f for f in self.findings if f.category == Category.SECURITY]

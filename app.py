@@ -131,7 +131,13 @@ def _stream_review(mode: str, payload) -> StreamingResponse:
                     filename=payload.filename,
                 )
 
-            emit({"type": "complete", "review": review.model_dump(mode="json")})
+            try:
+                review_data = review.model_dump(mode="json")
+            except AttributeError:
+                # Pydantic v2.12.x serialisation bug fallback — str-Enum fields
+                # are still JSON-safe via the str base class
+                review_data = review.model_dump()
+            emit({"type": "complete", "review": review_data})
 
         except Exception as exc:
             emit({"type": "error", "message": str(exc), "detail": traceback.format_exc()})

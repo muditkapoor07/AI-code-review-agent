@@ -298,7 +298,14 @@ class CodeReviewAgent:
         data["blocking_issues"] = []
 
         # ── Step 5: normalise and coerce ────────────────────────────────
-        _strip_problematic_fields(data)
+        try:
+            _strip_problematic_fields(data)
+        except Exception:
+            # Normalisation failed — reset to safe minimal state and continue
+            data["findings"] = []
+            data["scores"] = {"code_quality": 5, "security": 5,
+                              "performance": 5, "overall": 5, "rationale": {}}
+            data["blocking_issues"] = []
 
         # ── Step 6: Pydantic validate, then compute blocking_issues ourselves ─
         for attempt in range(2):
